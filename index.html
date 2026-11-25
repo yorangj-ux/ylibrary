@@ -50,7 +50,7 @@
   --danger: #ff8a80; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.35); color-scheme: dark; }
 
 * { box-sizing: border-box; }
-body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55; }
+body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55; word-break: keep-all; overflow-wrap: break-word; }
 .wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -107,7 +107,7 @@ select.sort { padding: 8px 10px; border: 1px solid var(--line); border-radius: 1
 .gen .a { font-size: 12px; opacity: .85; word-break: keep-all; line-height: 1.35; }
 .gen .rule { width: 28px; height: 2px; background: currentColor; opacity: .55; margin: 10px 0; }
 .meta .t { font-weight: 600; font-size: 14px; line-height: 1.35; word-break: keep-all; overflow-wrap: anywhere; }
-.meta .a { font-size: 13px; color: var(--muted); }
+.meta .a { font-size: 13px; color: var(--muted); line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
 .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; letter-spacing: .02em; }
 .pill.want { color: var(--want); background: var(--want-bg); }
 .pill.reading { color: var(--reading); background: var(--reading-bg); }
