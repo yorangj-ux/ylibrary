@@ -1173,6 +1173,28 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   try { sync = { ...sync, ...JSON.parse(localStorage.getItem(syncKey) || '{}') }; } catch (e) {}
   const saveSync = () => { try { localStorage.setItem(syncKey, JSON.stringify(sync)); } catch (e) {} };
   let token = null, tokenExp = 0, tokenClient = null, timer = null, busy = false, again = false;
+  // 받은 열쇠(1시간짜리)는 저장해 두고, 앱을 다시 열어도 그 시간 안에는 로그인 창 없이 쓴다.
+  const tokKey = KEY + ':tok';
+  try { const t = JSON.parse(localStorage.getItem(tokKey) || '{}'); if (t.exp > Date.now()) { token = t.token; tokenExp = t.exp; } } catch (e) {}
+  function keepToken(t, sec) { token = t; tokenExp = Date.now() + (Number(sec) || 3600) * 1000; try { localStorage.setItem(tokKey, JSON.stringify({ token, exp: tokenExp })); } catch (e) {} }
+  function dropToken() { token = null; tokenExp = 0; try { localStorage.removeItem(tokKey); } catch (e) {} }
+  // 아이폰 홈 화면 앱에서는 로그인 팝업이 앱으로 돌아오지 못한다. 그래서 같은 창에서 Google로 갔다가 돌아오는 방식을 쓴다.
+  const iosApp = navigator.standalone === true;
+  const touch = navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches;
+  const redirectUri = location.origin + location.pathname.replace(/index\.html$/, '');
+  let fromRedirect = false;
+  if (location.hash.includes('access_token=')) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    let want = ''; try { want = sessionStorage.getItem(KEY + ':oauth') || localStorage.getItem(KEY + ':oauth') || ''; } catch (e) {}
+    if (h.get('state') && h.get('state') === want) { keepToken(h.get('access_token'), h.get('expires_in')); fromRedirect = true; }
+    try { localStorage.removeItem(KEY + ':oauth'); } catch (e) {}
+    history.replaceState(null, '', location.pathname + location.search);
+  } else if (location.hash.includes('error=')) history.replaceState(null, '', location.pathname + location.search);
+  function loginByRedirect() {
+    const st = uid(); try { localStorage.setItem(KEY + ':oauth', st); } catch (e) {}
+    const q = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: redirectUri, response_type: 'token', scope: SCOPE, state: st, include_granted_scopes: 'true', prompt: sync.linked ? 'select_account' : 'consent' });
+    location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + q;
+  }
 
   function setSyncUI(st, label) {
     const b = $('#syncBtn'); b.dataset.state = st; $('#syncLabel').textContent = label;
@@ -1193,11 +1215,12 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   async function getToken(interactive) {
     if (token && Date.now() < tokenExp - 60000) return token;
     if (!interactive) return null;
+    if (iosApp) { loginByRedirect(); return new Promise(() => {}); }
     await loadGIS();
     return new Promise((res, rej) => {
       tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID, scope: SCOPE,
-        callback: r => { if (r.error) return rej(new Error(r.error)); token = r.access_token; tokenExp = Date.now() + (r.expires_in || 3600) * 1000; res(token); },
+        callback: r => { if (r.error) return rej(new Error(r.error)); keepToken(r.access_token, r.expires_in); res(token); },
         error_callback: e => rej(new Error(e.type || 'popup'))
       });
       tokenClient.requestAccessToken({ prompt: sync.linked ? '' : 'consent' });
@@ -1205,7 +1228,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   }
   async function api(path, opts = {}) {
     const r = await fetch('https://www.googleapis.com' + path, { ...opts, headers: { Authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
-    if (r.status === 401) { token = null; throw new Error('auth'); }
+    if (r.status === 401) { dropToken(); throw new Error('auth'); }
     if (!r.ok && !(r.status === 404 && opts.method === 'DELETE')) throw new Error('http ' + r.status);
     return r;
   }
@@ -1298,19 +1321,21 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     }
     openSheet(`<div class="head"><h2>Google Drive 연동</h2><button class="x" data-close aria-label="닫기">×</button></div>
       <p>${sync.lastSync ? `마지막으로 맞춘 시각: ${new Date(sync.lastSync).toLocaleString('ko-KR')}` : '아직 맞춘 적이 없어요.'}</p>
-      <p class="hint">책을 추가하거나 고치면 몇 초 뒤 자동으로 Drive에 저장돼요. 앱을 새로 열면 ‘지금 맞추기’를 한 번 눌러 주세요.</p>
+      <p class="hint">책을 추가하거나 고치면 몇 초 뒤 자동으로 Drive에 저장돼요. 한동안 쓰지 않았다면 위의 ‘Drive와 맞추기’를 한 번 눌러 주세요.</p>
       <div class="actions"><button class="btn primary" id="doSync">지금 맞추기</button><button class="btn ghost" id="unlink">이 기기 연동 끊기</button></div>`);
   }
   window.__sync = {
     schedule() { if (!sync.linked || !token) return; clearTimeout(timer); timer = setTimeout(() => runSync(false), 3000); }
   };
   if (GOOGLE_CLIENT_ID && isApp) { $('#syncBtn').hidden = false; idleLabel(); }
-  $('#syncBtn').onclick = () => { if (!(sync.linked && !(token && Date.now() < tokenExp))) showSyncSheet(); };
-  // 연동된 기기라면 앱을 연 뒤 첫 터치(클릭) 때 자동으로 Drive와 맞춘다.
-  // 로그인 창은 사람이 누를 때만 열 수 있어서, 앱을 열자마자가 아니라 첫 터치에 맞춘다.
+  $('#syncBtn').onclick = () => { if (sync.linked && !(token && Date.now() < tokenExp) && touch) return runSync(true); if (!(sync.linked && !(token && Date.now() < tokenExp))) showSyncSheet(); };
+  // 컴퓨터에서는 연동된 기기라면 앱을 연 뒤 첫 클릭 때 자동으로 Drive와 맞춘다(로그인 창은 클릭이 있어야 열린다).
+  // 휴대폰에서는 로그인 화면이 갑자기 뜨면 앱을 쓸 수 없으니, 위의 ‘Drive와 맞추기’를 눌렀을 때만 로그인한다.
   document.addEventListener('click', () => {
-    if (GOOGLE_CLIENT_ID && isApp && sync.linked && !(token && Date.now() < tokenExp) && !busy) runSync(true);
+    if (GOOGLE_CLIENT_ID && isApp && !touch && sync.linked && !(token && Date.now() < tokenExp) && !busy) runSync(true);
   }, true);
+  // 저장해 둔 열쇠가 아직 유효하거나 방금 로그인하고 돌아왔다면, 열자마자 조용히 맞춘다.
+  if (GOOGLE_CLIENT_ID && isApp && (fromRedirect || (sync.linked && token))) setTimeout(() => runSync(false), 300);
   // 다른 앱에 갔다가 돌아오면 최신 내용으로 다시 맞춘다.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && sync.linked && token && Date.now() < tokenExp) runSync(false);
@@ -1320,7 +1345,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     if (e.target.id === 'doLink' || e.target.id === 'doSync') { closeSheet(); runSync(true); }
     if (e.target.id === 'unlink') {
       if (token && window.google) google.accounts.oauth2.revoke(token, () => {});
-      token = null; sync = { linked: false, lastSync: 0 }; saveSync(); closeSheet(); idleLabel(); toast('이 기기의 연동을 끊었어요. 책은 그대로 남아 있어요.');
+      dropToken(); sync = { linked: false, lastSync: 0 }; saveSync(); closeSheet(); idleLabel(); toast('이 기기의 연동을 끊었어요. 책은 그대로 남아 있어요.');
     }
   });
 
