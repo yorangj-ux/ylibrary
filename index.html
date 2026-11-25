@@ -68,6 +68,7 @@ header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: 
 .sync[data-state="err"] .dot { background: var(--danger); }
 .sync[data-state="ok"], .sync[data-state="busy"] { color: var(--ink); }
 .rename svg { width: 18px; height: 18px; stroke: var(--ink); fill: none; display: block; }
+.top-side { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .counts { display: flex; gap: 22px; font-variant-numeric: tabular-nums; }
 .counts div { display: grid; }
 .counts b { font-family: var(--f-display); font-weight: 700; font-size: 28px; line-height: 1.1; }
@@ -234,6 +235,10 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   select.sort { flex: 1 1 0; min-width: 0; }
   #addBtn { flex: 1 1 0; }
   .counts b { font-size: 24px; }
+  header.top { gap: 14px; }
+  .brand { width: 100%; }
+  .top-side { width: 100%; flex-direction: row-reverse; justify-content: space-between; align-items: center; }
+  .sync { font-size: 12px; padding: 6px 10px; }
   .spine { width: 34px; line-height: 34px; font-size: 13px; }
   .shelf { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 22px 14px; }
   .gen .t { font-size: 14px; }
@@ -252,7 +257,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       <h1><span id="libName">Y's Library</span> <button class="rename" id="renameBtn" aria-label="서재 이름 바꾸기" title="서재 이름 바꾸기"><svg viewBox="0 0 24 24" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg></button></h1>
       <p id="libTagline">내 책장에 꽂힌 책들</p>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+    <div class="top-side">
       <button class="sync" id="syncBtn" hidden><span class="dot"></span><span id="syncLabel">Google Drive 연동</span></button>
       <div class="counts" id="counts"></div>
     </div>
