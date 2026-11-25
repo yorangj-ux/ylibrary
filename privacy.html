@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개인정보처리방침 · Y's Library</title>
+<link rel="icon" href="icons/icon-192.png">
+<style>
+:root { --bg: #f2f3ef; --fg: #1d2330; --muted: #5f6672; --accent: #2c4a8a; --line: #d9dcd4; }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171d; --fg: #e7e9ee; --muted: #9aa1ad; --accent: #8fb0f0; --line: #2d323c; color-scheme: dark; } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.75 "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif; }
+main { max-width: 680px; margin: 0 auto; padding: 40px max(16px, env(safe-area-inset-left, 0px)) 64px; }
+h1 { font-size: 28px; margin: 0 0 4px; } h2 { font-size: 18px; margin: 32px 0 6px; }
+p, li { color: var(--fg); } .muted { color: var(--muted); font-size: 14px; }
+a { color: var(--accent); } hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>개인정보처리방침</h1>
+  <p class="muted">Y's Library · 시행일 2026년 11월 25일</p>
+
+  <p>Y's Library(이하 ‘앱’)는 내가 가진 책을 정리하는 개인 서재 앱입니다. 앱 운영자는 사용자의 개인정보나 서재 내용을 수집하거나 보관하지 않습니다.</p>
+
+  <h2>1. 저장되는 정보와 위치</h2>
+  <ul>
+    <li>사용자가 입력한 책 정보(제목, 저자, 읽기 상태, 메모, 표지 사진 등)와 서재 이름은 <b>사용자 기기의 브라우저 저장소</b>에만 저장됩니다.</li>
+    <li>Google Drive 연동을 켜면 같은 내용이 <b>사용자 본인의 Google Drive ‘앱 전용 숨김 폴더’</b>에 <code>library.json</code> 파일 하나로 저장됩니다.</li>
+    <li>앱 운영자는 별도의 서버를 운영하지 않으며, 위 정보에 접근할 수 없습니다.</li>
+  </ul>
+
+  <h2>2. Google 계정 정보의 사용</h2>
+  <p>Drive 연동 시 앱은 <code>drive.appdata</code> 권한만 요청합니다. 이 권한으로는 앱이 만든 전용 폴더의 파일만 읽고 쓸 수 있으며, 사용자의 다른 Drive 파일, 이메일, 연락처 등에는 접근할 수 없습니다. 받은 접근 권한은 사용자 기기 안에서 Drive에 저장하고 불러오는 데에만 쓰이고, 어디에도 전송되거나 보관되지 않습니다.</p>
+  <p>앱의 Google 사용자 데이터 사용은 <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener">Google API 서비스 사용자 데이터 정책</a>과 그 제한적 사용(Limited Use) 요건을 따릅니다.</p>
+
+  <h2>3. 외부 서비스</h2>
+  <ul>
+    <li>ISBN으로 책 정보를 찾을 때 해당 ISBN이 Google Books 또는 Open Library에 전송됩니다.</li>
+    <li>글꼴을 불러오기 위해 Google Fonts에 접속합니다.</li>
+    <li>앱은 GitHub Pages에서 제공되며, GitHub가 일반적인 접속 기록을 남길 수 있습니다.</li>
+  </ul>
+
+  <h2>4. 정보의 삭제</h2>
+  <ul>
+    <li>기기의 정보는 브라우저의 사이트 데이터를 지우면 삭제됩니다.</li>
+    <li>Drive의 정보는 Google Drive 설정 → 앱 관리에서 ‘Y's Library’의 숨김 앱 데이터를 삭제하면 지워집니다.</li>
+    <li>연동 해제는 앱의 ‘이 기기 연동 끊기’ 또는 <a href="https://myaccount.google.com/permissions" rel="noopener">Google 계정 → 서드파티 앱 접근</a>에서 할 수 있습니다.</li>
+  </ul>
+
+  <h2>5. 문의</h2>
+  <p>궁금한 점은 <a href="https://github.com/yorangj-ux/ylibrary/issues" rel="noopener">GitHub 저장소의 Issues</a>에 남겨 주세요.</p>
+
+  <hr>
+  <p class="muted"><a href="./">← 서재로 돌아가기</a></p>
+</main>
+</body>
+</html>
