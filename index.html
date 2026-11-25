@@ -147,6 +147,7 @@ form.edit { display: grid; gap: 12px; }
 .coverpick .cover { width: 64px; flex: none; }
 .coverpick .gen .t { font-size: 9px; } .coverpick .gen .a { display: none; } .coverpick .gen { padding: 6px 5px 5px 9px; } .coverpick .gen .rule { margin: 3px 0; }
 
+.io-h { font-family: var(--f-display); font-size: 17px; margin: 18px 0 2px; }
 textarea.io { width: 100%; min-height: 220px; font-family: var(--f-mono); font-size: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 8px; z-index: 30; font-size: 14px; }
@@ -495,13 +496,46 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     hint.textContent = failed === SOURCES.length ? '지금은 도서 정보 서버에 연결할 수 없어요. 아래에 직접 적어 주세요.' : '이 ISBN으로 등록된 책을 못 찾았어요. 아래에 직접 적어 주세요.';
   }
 
+  // 엑셀이 한글을 제대로 읽도록 UTF-8 BOM을 붙이고, ISBN은 숫자로 바뀌지 않게 ="…" 텍스트로 쓴다.
+  function toCSV() {
+    const cell = v => { const t = String(v ?? ''); return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+    const head = ['제목', '저자', '출판사', '출간연도', '쪽수', 'ISBN', '읽기 상태', '별점', '태그', '꽂힌 곳', '메모', '추가한 날'];
+    const rows = [...state.books].sort((a, b) => a.title.localeCompare(b.title, 'ko')).map(b => [
+      b.title, b.author, b.publisher, b.year, b.pages, b.isbn ? `="${b.isbn}"` : '', STATUS[b.status], b.rating || '',
+      b.tags.join(', '), b.location, b.notes, new Date(b.addedAt).toISOString().slice(0, 10)
+    ]);
+    return '\uFEFF' + [head, ...rows].map(r => r.map(cell).join(',')).join('\r\n');
+  }
+  // 파일 받기: 휴대폰은 공유 시트(파일에 저장, 메일 등)를, 컴퓨터는 다운로드를 쓴다.
+  async function saveFile(name, text, type) {
+    const hint = $('#ioHint'); hint.className = 'hint';
+    const blob = new Blob([text], { type: type + ';charset=utf-8' });
+    const mobile = /iphone|ipad|ipod|android/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    try {
+      const file = new File([blob], name, { type });
+      if (mobile && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: name });
+        return;
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    try {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      hint.textContent = '파일이 받아지지 않으면 백업의 ‘복사’를 써 주세요.';
+    } catch (e) { hint.textContent = '여기서는 파일을 받을 수 없어요. 백업의 ‘복사’를 써 주세요.'; }
+  }
+
   function showIO(mode) {
     const json = JSON.stringify({ app: "Y's Library", version: 1, exportedAt: new Date().toISOString(), profile, books: state.books }, null, 2);
     openSheet(mode === 'export' ? `
       <div class="head"><h2>내보내기</h2><button class="x" data-close aria-label="닫기">×</button></div>
-      <p>책 ${state.books.length}권의 정보예요. 파일로 받거나, 아래 내용을 복사해 보관하세요.</p>
-      <textarea class="io" id="ioText" readonly>${esc(json)}</textarea>
-      <div class="actions"><button class="btn primary" id="dl">파일로 받기</button><button class="btn" id="copy">복사</button></div>
+      <h3 class="io-h">엑셀로 보기</h3>
+      <p>책 ${state.books.length}권의 목록을 엑셀, Numbers, Google 스프레드시트에서 열 수 있는 파일로 받아요.</p>
+      <div class="actions" style="margin-top:0"><button class="btn primary" id="dlCsv">엑셀 파일(CSV)로 받기</button></div>
+      <h3 class="io-h">백업</h3>
+      <p>다른 기기나 이 앱으로 다시 가져올 수 있는 백업 파일이에요. 표지 사진과 메모까지 모두 담겨요.</p>
+      <div class="actions" style="margin-top:0"><button class="btn" id="dl">백업 파일 받기</button><button class="btn" id="copy">복사</button></div>
+      <textarea class="io" id="ioText" readonly hidden>${esc(json)}</textarea>
       <p class="hint" id="ioHint"></p>` : `
       <div class="head"><h2>가져오기</h2><button class="x" data-close aria-label="닫기">×</button></div>
       <p>내보낸 파일을 고르거나 내용을 붙여 넣으세요. 같은 책은 건너뛰고 새 책만 더해요.</p>
@@ -509,17 +543,11 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       <div class="actions"><button class="btn primary" id="doImport">가져오기</button><button class="btn" id="pickFile">파일 고르기</button></div>
       <p class="hint" id="ioHint"></p>`);
     if (mode === 'export') {
-      $('#dl').onclick = () => {
-        try {
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-          a.download = `ys-library-${new Date().toISOString().slice(0, 10)}.json`;
-          document.body.appendChild(a); a.click(); a.remove();
-          $('#ioHint').textContent = '파일이 받아지지 않으면 ‘복사’를 써 주세요.';
-        } catch (e) { $('#ioHint').textContent = '여기서는 파일을 받을 수 없어요. ‘복사’를 써 주세요.'; }
-      };
+      const day = new Date().toISOString().slice(0, 10);
+      $('#dl').onclick = () => saveFile(`ys-library-${day}.json`, json, 'application/json');
+      $('#dlCsv').onclick = () => saveFile(`ys-library-books-${day}.csv`, toCSV(), 'text/csv');
       $('#copy').onclick = () => {
-        navigator.clipboard.writeText(json).then(() => toast('복사했어요'), () => { $('#ioText').select(); $('#ioHint').textContent = '전체 선택했어요. Ctrl+C(⌘C)로 복사하세요.'; });
+        navigator.clipboard.writeText(json).then(() => toast('복사했어요'), () => { $('#ioText').hidden = false; $('#ioText').select(); $('#ioHint').textContent = '전체 선택했어요. Ctrl+C(⌘C)로 복사하세요.'; });
       };
     } else {
       $('#pickFile').onclick = () => $('#fileImport').click();
