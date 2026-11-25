@@ -385,6 +385,18 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     applyProfile();
     if (window.__sync && !p.fromSync) window.__sync.schedule();
   }
+  function showRename() {
+    openSheet(`
+      <div class="head"><h2>서재 이름 바꾸기</h2><button class="x" data-close aria-label="닫기">×</button></div>
+      <form class="edit" id="renameForm">
+        <div class="field"><label for="r-name">서재 이름</label><input id="r-name" name="name" maxlength="40" value="${esc(profile.name)}" placeholder="${esc(DEFAULT_PROFILE.name)}"></div>
+        <div class="field"><label for="r-tagline">한 줄 소개 (비워 두면 숨겨요)</label><input id="r-tagline" name="tagline" maxlength="60" value="${esc(profile.tagline)}"></div>
+        <p class="hint">화면 위 제목과 브라우저 탭 이름이 바뀌어요. 휴대폰 홈 화면 아이콘 아래 이름은 설치할 때 정해져요.</p>
+        <div class="actions"><button class="btn primary" type="submit">저장</button><button class="btn ghost" type="button" id="resetName">기본 이름으로</button></div>
+      </form>`);
+    $('#renameForm').onsubmit = e => { e.preventDefault(); saveProfile(Object.fromEntries(new FormData(e.target))); closeSheet(); toast('서재 이름을 바꿨어요'); };
+    $('#resetName').onclick = () => { saveProfile({ ...DEFAULT_PROFILE, updatedAt: 0, goals: profile.goals }); closeSheet(); toast('기본 이름으로 돌렸어요'); };
+  }
 
   // ---------- helpers ----------
   const $ = s => document.querySelector(s);
