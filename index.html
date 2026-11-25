@@ -1368,7 +1368,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     }
   });
 
-  if (isApp && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (isApp && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
   if (isApp && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   load(); applyProfile(); render();

@@ -1,5 +1,5 @@
 // Y's Library service worker: 앱 화면은 캐시에서 바로 열고, 도서 정보 조회는 항상 네트워크로.
-const VERSION = 'v16';
+const VERSION = 'v17';
 const SHELL = ['./', 'index.html', 'privacy.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
@@ -13,7 +13,8 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
   // 앱 파일: 네트워크 우선(새 버전 반영), 실패하면 캐시
   if (url.origin === location.origin) {
-    e.respondWith(fetch(req).then(res => { const copy = res.clone(); caches.open('shell-' + VERSION).then(c => c.put(req, copy)); return res; })
+    // 'no-cache': 브라우저가 기억한 옛 파일 대신 늘 서버에 최신인지 물어본다(GitHub Pages는 10분간 기억하게 한다).
+    e.respondWith(fetch(req.url, { cache: 'no-cache' }).then(res => { const copy = res.clone(); caches.open('shell-' + VERSION).then(c => c.put(req, copy)); return res; })
       .catch(() => caches.match(req, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
     return;
   }
