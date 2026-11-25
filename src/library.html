@@ -879,27 +879,51 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   // 두 키 모두 공개 페이지에 들어가므로, 발급처에서 사용 한도 외에 비용이 생기지 않는 키만 넣는다.
   const NLK_KEY = '130ed7adf887ab97f767d3fcab2a3bb523df32d3d48ceb8a4ce29d68e65814a6';    // 국립중앙도서관 ISBN 서지정보 API 인증키 (www.nl.go.kr 오픈API)
   const KAKAO_KEY = 'd017d8003eaaf3b737f7d55e509e3523';  // 카카오 REST API 키 (developers.kakao.com)
+  // 공개 앱이라 검색 한도를 아끼려고: 응답이 이상하면 바로 다음 곳으로 넘어가고, 한도에 걸린 곳은 한 시간 쉬게 한다.
+  const coolKey = KEY + ':cool';
+  const cooling = name => { try { return (JSON.parse(localStorage.getItem(coolKey) || '{}')[name] || 0) > Date.now(); } catch (e) { return false; } };
+  function coolDown(name) { try { const c = JSON.parse(localStorage.getItem(coolKey) || '{}'); c[name] = Date.now() + 3600e3; localStorage.setItem(coolKey, JSON.stringify(c)); } catch (e) {} }
+  class QuotaError extends Error {}
+  async function getJSON(url, opts = {}) {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+    try {
+      const r = await fetch(url, { ...opts, signal: ctl.signal });
+      if (r.status === 429 || r.status === 403) throw new QuotaError('quota');
+      if (!r.ok) throw new Error('http ' + r.status);
+      return await r.json();
+    } finally { clearTimeout(t); }
+  }
+  // 한 번 찾은 책 정보는 이 기기에 저장해 두고, 같은 ISBN은 다시 묻지 않는다(최근 500권).
+  const lookKey = KEY + ':lookup';
+  function cachedInfo(isbn) { try { return JSON.parse(localStorage.getItem(lookKey) || '{}')[isbn] || null; } catch (e) { return null; } }
+  function keepInfo(isbn, info) {
+    try {
+      const c = JSON.parse(localStorage.getItem(lookKey) || '{}'); c[isbn] = { ...info, t: Date.now() };
+      const ks = Object.keys(c); if (ks.length > 500) ks.sort((a, b) => c[a].t - c[b].t).slice(0, ks.length - 500).forEach(k => delete c[k]);
+      localStorage.setItem(lookKey, JSON.stringify(c));
+    } catch (e) {}
+  }
   const strip = h => String(h || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   const SOURCES = [
     ['국립중앙도서관', NLK_KEY && (async isbn => {
-      const j = await (await fetch(`https://www.nl.go.kr/seoji/SearchApi.do?cert_key=${encodeURIComponent(NLK_KEY)}&result_style=json&page_no=1&page_size=1&isbn=${isbn}`)).json();
+      const j = await getJSON(`https://www.nl.go.kr/seoji/SearchApi.do?cert_key=${encodeURIComponent(NLK_KEY)}&result_style=json&page_no=1&page_size=1&isbn=${isbn}`);
+      if (j.RESULT === 'ERROR' || j.ERR_CODE || j.errorCode) throw new QuotaError('quota');
       const d = j.docs && j.docs[0]; if (!d || !d.TITLE) return null;
       return { title: strip(d.TITLE), author: strip(d.AUTHOR).replace(/^(지은이|글|저자)\s*:\s*/, ''), publisher: strip(d.PUBLISHER),
         year: (d.PUBLISH_PREDATE || d.REAL_PUBLISH_DATE || '').slice(0, 4), pages: parseInt(d.PAGE) || '', cover: (d.TITLE_URL || '').replace(/^http:/, 'https:') };
     })],
     ['카카오', KAKAO_KEY && (async isbn => {
-      const j = await (await fetch(`https://dapi.kakao.com/v3/search/book?target=isbn&query=${isbn}`, { headers: { Authorization: 'KakaoAK ' + KAKAO_KEY } })).json();
+      const j = await getJSON(`https://dapi.kakao.com/v3/search/book?target=isbn&query=${isbn}`, { headers: { Authorization: 'KakaoAK ' + KAKAO_KEY } });
       const d = j.documents && j.documents[0]; if (!d) return null;
       return { title: d.title, author: (d.authors || []).join(', '), publisher: d.publisher, year: (d.datetime || '').slice(0, 4), cover: d.thumbnail };
     })],
     ['Open Library', async isbn => {
-      const o = (await (await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`)).json())['ISBN:' + isbn];
+      const o = (await getJSON(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`))['ISBN:' + isbn];
       if (!o) return null;
       return { title: o.title, author: (o.authors || []).map(a => a.name).join(', '), publisher: (o.publishers || [])[0]?.name, year: (o.publish_date || '').match(/\d{4}/)?.[0], pages: o.number_of_pages, cover: o.cover && o.cover.medium };
     }],
     ['Google Books', async isbn => {
-      const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`); if (!r.ok) return null;
-      const v = (await r.json()).items?.[0]?.volumeInfo; if (!v) return null;
+      const v = (await getJSON(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`)).items?.[0]?.volumeInfo; if (!v) return null;
       return { title: v.title + (v.subtitle ? ' : ' + v.subtitle : ''), author: (v.authors || []).join(', '), publisher: v.publisher, year: (v.publishedDate || '').slice(0, 4), pages: v.pageCount, cover: (v.imageLinks?.thumbnail || '').replace('http:', 'https:') };
     }]
   ].filter(([, fn]) => fn);
@@ -910,24 +934,28 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     const hint = $('#lookupHint'); hint.className = 'hint';
     if (isbn.length !== 10 && isbn.length !== 13) { hint.className = 'hint err'; hint.textContent = 'ISBN은 10자리나 13자리 숫자예요.'; return; }
     if (form.__checkDup && form.__checkDup()) { hint.textContent = ''; }
+    const FIELDS = ['title', 'author', 'publisher', 'year', 'pages', 'cover'];
+    const fill = info => { for (const k of FIELDS) if (info[k] && !F[k].value) F[k].value = info[k]; refreshPrev(); if (form.__checkDup) form.__checkDup(); };
+    const hit = cachedInfo(isbn);
+    if (hit) { fill(hit); hint.textContent = '전에 찾아 둔 정보로 채웠어요. 내용을 확인하고 저장하세요.'; return; }
     hint.textContent = '찾는 중…';
     // 처음 찾은 곳의 정보를 쓰고, 표지나 쪽수처럼 빈 칸은 다음 곳에서 채운다.
-    let failed = 0, found = null;
+    let failed = 0, found = null; const merged = {};
     for (const [name, fn] of SOURCES) {
+      if (cooling(name)) { failed++; continue; }
       try {
         const info = await fn(isbn);
         if (!info || !info.title) continue;
-        for (const k of ['title', 'author', 'publisher', 'year', 'pages']) if (info[k] && !F[k].value) F[k].value = info[k];
-        if (info.cover && !F.cover.value) F.cover.value = info.cover;
-        refreshPrev();
-        found = found || name; if (form.__checkDup) form.__checkDup();
+        for (const k of FIELDS) if (info[k] && !merged[k]) merged[k] = info[k];
+        fill(info);
+        found = found || name;
         hint.textContent = `${found}에서 찾았어요. 내용을 확인하고 저장하세요.`;
-        if (F.cover.value && F.pages.value) return;
-      } catch (e) { failed++; }
+        if (merged.cover && merged.pages) break;
+      } catch (e) { failed++; if (e instanceof QuotaError) coolDown(name); }
     }
-    if (found) return;
+    if (found) { keepInfo(isbn, merged); return; }
     hint.className = 'hint err';
-    hint.textContent = failed === SOURCES.length ? '지금은 도서 정보 서버에 연결할 수 없어요. 아래에 직접 적어 주세요.' : '이 ISBN으로 등록된 책을 못 찾았어요. 아래에 직접 적어 주세요.';
+    hint.textContent = failed === SOURCES.length ? '지금은 책 정보를 가져올 수 없어요(검색이 많이 몰렸거나 인터넷 문제예요). 아래에 직접 적어 주세요.' : failed ? '못 찾았어요. 검색이 잠시 몰려 있을 수 있으니 아래에 직접 적거나 조금 뒤에 다시 찾아 주세요.' : '이 ISBN으로 등록된 책을 못 찾았어요. 아래에 직접 적어 주세요.';
   }
 
   // 엑셀이 한글을 제대로 읽도록 UTF-8 BOM을 붙이고, ISBN은 숫자로 바뀌지 않게 ="…" 텍스트로 쓴다.

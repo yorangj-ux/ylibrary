@@ -1,5 +1,5 @@
 // Y's Library service worker: 앱 화면은 캐시에서 바로 열고, 도서 정보 조회는 항상 네트워크로.
-const VERSION = 'v17';
+const VERSION = 'v18';
 const SHELL = ['./', 'index.html', 'privacy.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
