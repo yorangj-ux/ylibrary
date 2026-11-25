@@ -424,47 +424,55 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     });
   }
 
+  // ---------- 책 정보 찾기 ----------
+  // 순서대로 시도: 국립중앙도서관 → 카카오 → Open Library → Google Books. 키가 비어 있는 곳은 건너뛴다.
+  // 두 키 모두 공개 페이지에 들어가므로, 발급처에서 사용 한도 외에 비용이 생기지 않는 키만 넣는다.
+  const NLK_KEY = '';    // 국립중앙도서관 ISBN 서지정보 API 인증키 (www.nl.go.kr 오픈API)
+  const KAKAO_KEY = '';  // 카카오 REST API 키 (developers.kakao.com)
+  const strip = h => String(h || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  const SOURCES = [
+    ['국립중앙도서관', NLK_KEY && (async isbn => {
+      const j = await (await fetch(`https://www.nl.go.kr/seoji/SearchApi.do?cert_key=${encodeURIComponent(NLK_KEY)}&result_style=json&page_no=1&page_size=1&isbn=${isbn}`)).json();
+      const d = j.docs && j.docs[0]; if (!d || !d.TITLE) return null;
+      return { title: strip(d.TITLE), author: strip(d.AUTHOR).replace(/^(지은이|글|저자)\s*:\s*/, ''), publisher: strip(d.PUBLISHER),
+        year: (d.PUBLISH_PREDATE || d.REAL_PUBLISH_DATE || '').slice(0, 4), pages: parseInt(d.PAGE) || '', cover: (d.TITLE_URL || '').replace(/^http:/, 'https:') };
+    })],
+    ['카카오', KAKAO_KEY && (async isbn => {
+      const j = await (await fetch(`https://dapi.kakao.com/v3/search/book?target=isbn&query=${isbn}`, { headers: { Authorization: 'KakaoAK ' + KAKAO_KEY } })).json();
+      const d = j.documents && j.documents[0]; if (!d) return null;
+      return { title: d.title, author: (d.authors || []).join(', '), publisher: d.publisher, year: (d.datetime || '').slice(0, 4), cover: d.thumbnail };
+    })],
+    ['Open Library', async isbn => {
+      const o = (await (await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`)).json())['ISBN:' + isbn];
+      if (!o) return null;
+      return { title: o.title, author: (o.authors || []).map(a => a.name).join(', '), publisher: (o.publishers || [])[0]?.name, year: (o.publish_date || '').match(/\d{4}/)?.[0], pages: o.number_of_pages, cover: o.cover && o.cover.medium };
+    }],
+    ['Google Books', async isbn => {
+      const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`); if (!r.ok) return null;
+      const v = (await r.json()).items?.[0]?.volumeInfo; if (!v) return null;
+      return { title: v.title + (v.subtitle ? ' : ' + v.subtitle : ''), author: (v.authors || []).join(', '), publisher: v.publisher, year: (v.publishedDate || '').slice(0, 4), pages: v.pageCount, cover: (v.imageLinks?.thumbnail || '').replace('http:', 'https:') };
+    }]
+  ].filter(([, fn]) => fn);
+
   async function lookup(form, refreshPrev) {
-    const isbn = form.elements.isbn.value.replace(/[^0-9Xx]/g, '');
+    const F = form.elements;
+    const isbn = F.isbn.value.replace(/[^0-9Xx]/g, '');
     const hint = $('#lookupHint'); hint.className = 'hint';
     if (isbn.length !== 10 && isbn.length !== 13) { hint.className = 'hint err'; hint.textContent = 'ISBN은 10자리나 13자리 숫자예요.'; return; }
     hint.textContent = '찾는 중…';
-    const fill = info => {
-      for (const k of ['title', 'author', 'publisher', 'year', 'pages']) if (info[k] && !form.elements[k].value) form.elements[k].value = info[k];
-      if (info.cover && !form.elements.cover.value) form.elements.cover.value = info.cover;
-      refreshPrev();
-    };
-    try {
-      const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-      const j = await r.json();
-      const v = j.items && j.items[0] && j.items[0].volumeInfo;
-      if (v) {
-        fill({ title: v.title + (v.subtitle ? ' : ' + v.subtitle : ''), author: (v.authors || []).join(', '), publisher: v.publisher, year: (v.publishedDate || '').slice(0, 4), pages: v.pageCount, cover: v.imageLinks && (v.imageLinks.thumbnail || '').replace('http:', 'https:') });
-        hint.textContent = '찾았어요. 내용을 확인하고 저장하세요.'; return;
-      }
-      const r2 = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`);
-      const j2 = await r2.json(); const o = j2['ISBN:' + isbn];
-      if (o) {
-        fill({ title: o.title, author: (o.authors || []).map(a => a.name).join(', '), publisher: (o.publishers || [])[0]?.name, year: (o.publish_date || '').match(/\d{4}/)?.[0], pages: o.number_of_pages, cover: o.cover && o.cover.medium });
-        hint.textContent = '찾았어요. 내용을 확인하고 저장하세요.'; return;
-      }
-      hint.className = 'hint err'; hint.textContent = '이 ISBN으로 등록된 책을 못 찾았어요. 아래에 직접 적어 주세요.';
-    } catch (e) {
-      hint.className = 'hint err'; hint.textContent = '지금은 도서 정보 서버에 연결할 수 없어요. 아래에 직접 적어 주세요.';
+    let failed = 0;
+    for (const [name, fn] of SOURCES) {
+      try {
+        const info = await fn(isbn);
+        if (!info || !info.title) continue;
+        for (const k of ['title', 'author', 'publisher', 'year', 'pages']) if (info[k] && !F[k].value) F[k].value = info[k];
+        if (info.cover && !F.cover.value) F.cover.value = info.cover;
+        refreshPrev();
+        hint.textContent = `${name}에서 찾았어요. 내용을 확인하고 저장하세요.`; return;
+      } catch (e) { failed++; }
     }
-  }
-
-  function showRename() {
-    openSheet(`
-      <div class="head"><h2>서재 이름 바꾸기</h2><button class="x" data-close aria-label="닫기">×</button></div>
-      <form class="edit" id="renameForm">
-        <div class="field"><label for="r-name">서재 이름</label><input id="r-name" name="name" maxlength="40" value="${esc(profile.name)}" placeholder="${esc(DEFAULT_PROFILE.name)}"></div>
-        <div class="field"><label for="r-tagline">한 줄 소개 (비워 두면 숨겨요)</label><input id="r-tagline" name="tagline" maxlength="60" value="${esc(profile.tagline)}"></div>
-        <p class="hint">화면 위 제목과 브라우저 탭 이름이 바뀌어요. 휴대폰 홈 화면 아이콘 아래 이름은 설치할 때 정해져요.</p>
-        <div class="actions"><button class="btn primary" type="submit">저장</button><button class="btn ghost" type="button" id="resetName">기본 이름으로</button></div>
-      </form>`);
-    $('#renameForm').onsubmit = e => { e.preventDefault(); saveProfile(Object.fromEntries(new FormData(e.target))); closeSheet(); toast('서재 이름을 바꿨어요'); };
-    $('#resetName').onclick = () => { saveProfile({ ...DEFAULT_PROFILE, updatedAt: Date.now() }); closeSheet(); toast('기본 이름으로 돌렸어요'); };
+    hint.className = 'hint err';
+    hint.textContent = failed === SOURCES.length ? '지금은 도서 정보 서버에 연결할 수 없어요. 아래에 직접 적어 주세요.' : '이 ISBN으로 등록된 책을 못 찾았어요. 아래에 직접 적어 주세요.';
   }
 
   function showIO(mode) {
