@@ -625,8 +625,87 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     openSheet(`<div class="head"><h2>${esc(b ? b.title : '밑줄 노트')}${n.page ? ` <span class="hint" style="font-size:15px">${esc(n.page)}쪽</span>` : ''}</h2><button class="x" data-close aria-label="닫기">×</button></div>
       <div class="hl big"><img data-noteimg="${n.id}" alt="밑줄 노트 사진">${strokesSVG(n)}</div>
       ${n.memo ? `<p class="memo-view">${esc(n.memo)}</p>` : ''}
-      <div class="actions"><button class="btn primary" data-editnote="${n.id}">편집</button><button class="btn" data-open="${n.bookId}">책으로 돌아가기</button><button class="btn danger" data-delnote="${n.id}">삭제</button></div>`);
+      <div class="actions"><button class="btn primary" data-sharenote="${n.id}">공유</button><button class="btn" data-editnote="${n.id}">편집</button><button class="btn" data-open="${n.bookId}">책으로 돌아가기</button><button class="btn danger" data-delnote="${n.id}">삭제</button></div>`);
     fillNoteImages($('.sheet'));
+  }
+  // ---------- 밑줄 노트 공유: 형광펜을 입힌 사진 + 책 정보 카드를 한 장의 이미지로 ----------
+  function wrapLines(ctx, text, maxW, maxLines) {
+    const out = [];
+    for (const para of String(text).split('\n')) {
+      let line = '';
+      for (const ch of para) {
+        if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch.trimStart(); } else line += ch;
+      }
+      out.push(line);
+    }
+    if (out.length > maxLines) { out.length = maxLines; out[maxLines - 1] = out[maxLines - 1].replace(/.{0,1}$/, '…'); }
+    return out;
+  }
+  async function noteCard(n, withMemo) {
+    const src = await noteImage(n.id); if (!src) throw new Error('noimg');
+    const b = state.books.find(x => x.id === n.bookId) || { title: '', author: '' };
+    const img = new Image(); img.src = src; await img.decode();
+    try { await Promise.all(['700 44px "Gowun Batang"', '400 32px "Gowun Batang"', '400 26px "IBM Plex Sans KR"'].map(f => document.fonts.load(f, '가'))); } catch (e) {}
+    const W = 1080, P = 64, iw = W - P * 2, ih = Math.round(iw * img.height / img.width);
+    const ser = '"Gowun Batang", "Noto Serif KR", serif', sans = '"IBM Plex Sans KR", "Apple SD Gothic Neo", sans-serif';
+    const meas = document.createElement('canvas').getContext('2d');
+    meas.font = `400 32px ${ser}`; const memo = withMemo && n.memo ? wrapLines(meas, n.memo, iw, 6) : [];
+    meas.font = `700 44px ${ser}`; const title = wrapLines(meas, b.title || '제목 없음', iw, 2);
+    const H = P + ih + 48 + (memo.length ? memo.length * 50 + 36 : 0) + 2 + 40 + title.length * 58 + 44 + 70;
+    const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+    x.fillStyle = '#f7f3ec'; x.fillRect(0, 0, W, H);
+    x.save(); x.shadowColor = 'rgba(42,38,34,.18)'; x.shadowBlur = 24; x.shadowOffsetY = 6; x.fillStyle = '#fff'; x.fillRect(P, P, iw, ih); x.restore();
+    x.drawImage(img, P, P, iw, ih);
+    x.save(); x.beginPath(); x.rect(P, P, iw, ih); x.clip(); x.globalCompositeOperation = 'multiply'; x.globalAlpha = .5; x.lineCap = 'round'; x.lineJoin = 'round';
+    for (const st of n.strokes || []) {
+      x.strokeStyle = st.c; x.lineWidth = st.w * iw; x.beginPath();
+      st.pts.forEach((p, i) => (i ? x.lineTo : x.moveTo).call(x, P + p[0] * iw, P + p[1] * ih)); x.stroke();
+    }
+    x.restore();
+    let y = P + ih + 48;
+    x.textBaseline = 'top'; x.fillStyle = '#2a2622';
+    if (memo.length) { x.font = `400 32px ${ser}`; memo.forEach(l => { x.fillText(l, P, y); y += 50; }); y += 36; }
+    x.fillStyle = '#2f5d4e'; x.fillRect(P, y, 48, 3); y += 2 + 40;
+    x.fillStyle = '#2a2622'; x.font = `700 44px ${ser}`; title.forEach(l => { x.fillText(l, P, y); y += 58; });
+    x.fillStyle = '#776d62'; x.font = `400 26px ${sans}`;
+    x.fillText([b.author, n.page ? n.page + '쪽' : ''].filter(Boolean).join(' · '), P, y + 4);
+    x.textAlign = 'right'; x.font = `700 24px ${ser}`; x.fillStyle = '#2f5d4e'; x.fillText(profile.name, W - P, H - P + 10);
+    return new Promise(res => c.toBlob(res, 'image/png'));
+  }
+  function showShareNote(id) {
+    const n = N().find(x => x.id === id); if (!n) return;
+    const b = state.books.find(x => x.id === n.bookId);
+    let file = null, url = '';
+    openSheet(`<div class="head"><h2>밑줄 노트 공유</h2><button class="x" data-close aria-label="닫기">×</button></div>
+      <div id="shareBox" class="hint">이미지를 만드는 중이에요…</div>
+      ${n.memo ? `<label class="hint" style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" id="shareMemo" checked> 메모도 함께 넣기</label>` : ''}
+      <div class="actions"><button class="btn primary" id="doShare" disabled>공유하기</button><button class="btn" id="doSave" disabled>이미지 저장</button><button class="btn ghost" data-note="${n.id}">돌아가기</button></div>
+      <p class="hint" id="shareHint"></p>`);
+    const name = `ys-note-${(b && b.isbn) || 'book'}-${n.page || n.id}.png`.replace(/[^\w.-]/g, '');
+    const build = async () => {
+      $('#doShare').disabled = $('#doSave').disabled = true;
+      try {
+        const blob = await noteCard(n, !$('#shareMemo') || $('#shareMemo').checked);
+        if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(blob);
+        file = new File([blob], name, { type: 'image/png' });
+        $('#shareBox').innerHTML = `<img src="${url}" alt="공유할 이미지 미리보기" style="width:100%;border-radius:10px;box-shadow:var(--shadow);display:block">`;
+        const canShare = navigator.canShare && navigator.canShare({ files: [file] });
+        $('#doShare').hidden = !canShare; $('#doShare').disabled = false; $('#doSave').disabled = false;
+        if (!canShare) $('#doSave').classList.add('primary');
+      } catch (e) {
+        $('#shareBox').textContent = e.message === 'noimg' ? '이 기기에 아직 사진이 없어요. Drive에서 받아온 다음 다시 눌러 주세요.' : '이미지를 만들지 못했어요.';
+      }
+    };
+    $('#doShare').onclick = async () => {
+      try { await navigator.share({ files: [file], title: b ? b.title : '밑줄 노트' }); }
+      catch (e) { if (e.name !== 'AbortError') $('#shareHint').textContent = '공유가 안 되면 ‘이미지 저장’을 눌러 주세요.'; }
+    };
+    $('#doSave').onclick = () => {
+      const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      $('#shareHint').textContent = /iphone|ipad/i.test(navigator.userAgent) ? '사진 앱에 넣으려면 이미지를 길게 눌러 ‘사진에 저장’을 고르세요.' : '';
+    };
+    if ($('#shareMemo')) $('#shareMemo').onchange = build;
+    build();
   }
   function showNoteEditor(bookId, noteId) {
     const old = noteId ? N().find(x => x.id === noteId) : null;
@@ -947,6 +1026,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     if (t.dataset.newnote) return showNoteEditor(t.dataset.newnote);
     if (t.dataset.note) return showNote(t.dataset.note);
     if (t.dataset.editnote) return showNoteEditor(null, t.dataset.editnote);
+    if (t.dataset.sharenote) return showShareNote(t.dataset.sharenote);
     if (t.dataset.delnote) {
       if (!t.classList.contains('armed')) { t.classList.add('armed'); t.textContent = '한 번 더 누르면 삭제'; return; }
       return deleteNote(t.dataset.delnote);
