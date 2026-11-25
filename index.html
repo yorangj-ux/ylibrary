@@ -112,7 +112,6 @@ select.sort { padding: 8px 10px; border: 1px solid var(--line); border-radius: 1
 .pill.want { color: var(--want); background: var(--want-bg); }
 .pill.reading { color: var(--reading); background: var(--reading-bg); }
 .pill.done { color: var(--done); background: var(--done-bg); }
-.callno { font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
 .meta .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 
 .empty { text-align: center; padding: 60px 16px; color: var(--muted); }
@@ -326,7 +325,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) { state = JSON.parse(raw); state.deleted = state.deleted || {}; return; }
+      if (raw) { state = JSON.parse(raw); state.deleted = state.deleted || {}; state.books = (state.books || []).map(normalize); return; }
     } catch (e) { memoryOnly = true; }
     state = { books: SAMPLE.map((b, i) => normalize({ ...b, addedAt: Date.now() - (SAMPLE.length - i) * 86400000 })), sample: true, deleted: {} };
   }
@@ -338,9 +337,11 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   }
   const N = () => state.notes || (state.notes = []);
   function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
+  // 국립중앙도서관 저자 표기(예: '스즈키 다이스케 지음 ;송현정 옮김')를 '…지음, 송현정 옮김'으로 다듬는다.
+  const tidyAuthor = a => String(a || '').replace(/\s*;\s*/g, ', ').replace(/\s+/g, ' ').replace(/^[,\s]+|[,\s]+$/g, '');
   function normalize(b) {
     return {
-      id: b.id || uid(), title: (b.title || '').trim(), author: (b.author || '').trim(),
+      id: b.id || uid(), title: (b.title || '').trim(), author: tidyAuthor(b.author),
       publisher: (b.publisher || '').trim(), year: b.year ? Number(b.year) || '' : '',
       isbn: (b.isbn || '').replace(/[^0-9Xx]/g, ''), pages: b.pages ? Number(b.pages) || '' : '',
       status: STATUS[b.status] ? b.status : 'want', rating: Number(b.rating) || 0,
@@ -421,10 +422,6 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   const $ = s => document.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   function hash(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); }
-  function callNo(b) {
-    const a = (b.author || '?').charAt(0); const t = (b.title || '?').charAt(0);
-    return `${a}${String(hash(b.author + b.title) % 1000).padStart(3, '0')}${t}`;
-  }
   function coverHTML(b) {
     if (b.cover) return `<div class="cover"><img src="${esc(b.cover)}" alt="" loading="lazy" onerror="this.parentNode.outerHTML=window.__genCover(${esc(JSON.stringify(b.id))})"></div>`;
     return genCover(b);
@@ -491,7 +488,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     } else if (!list.length) {
       $('#shelf').innerHTML = `<div class="empty" style="grid-column:1/-1"><h2>찾는 책이 없어요</h2><p>검색어나 상태 필터를 바꿔 보세요.</p></div>`;
     } else {
-      $('#shelf').innerHTML = list.map(b => `<button class="book" data-id="${b.id}">${coverHTML(b)}<div class="meta"><div class="t">${esc(b.title)}</div><div class="a">${esc(b.author)}</div><div class="row"><span class="pill ${b.status}">${STATUS[b.status]}</span>${b.lentTo ? `<span class="pill lent">빌려줌</span>` : `<span class="callno">${esc(callNo(b))}</span>`}</div></div></button>`).join('');
+      $('#shelf').innerHTML = list.map(b => `<button class="book" data-id="${b.id}">${coverHTML(b)}<div class="meta"><div class="t">${esc(b.title)}</div><div class="a">${esc(b.author)}</div><div class="row"><span class="pill ${b.status}">${STATUS[b.status]}</span>${b.lentTo ? `<span class="pill lent">빌려줌</span>` : ''}</div></div></button>`).join('');
     }
     renderStoreInfo();
   }
@@ -575,7 +572,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   function showDetail(id) {
     const b = state.books.find(x => x.id === id); if (!b) return;
     const facts = [['저자', b.author], ['출판사', b.publisher], ['출간', b.year], ['쪽수', b.pages && b.pages + '쪽'], ['ISBN', b.isbn], ['꽂힌 곳', b.location], ['태그', b.tags.join(', ')],
-      ['읽기 시작', ymd(b.startedAt)], ['다 읽은 날', ymd(b.finishedAt)], ['청구기호', callNo(b)]].filter(f => f[1]);
+      ['읽기 시작', ymd(b.startedAt)], ['다 읽은 날', ymd(b.finishedAt)]].filter(f => f[1]);
     openSheet(`
       <div class="head"><h2>${esc(b.title)}</h2><button class="x" data-close aria-label="닫기">×</button></div>
       <div class="detail">${coverHTML(b)}
@@ -923,7 +920,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       const j = await getJSON(`https://www.nl.go.kr/seoji/SearchApi.do?cert_key=${encodeURIComponent(NLK_KEY)}&result_style=json&page_no=1&page_size=1&isbn=${isbn}`);
       if (j.RESULT === 'ERROR' || j.ERR_CODE || j.errorCode) throw new QuotaError('quota');
       const d = j.docs && j.docs[0]; if (!d || !d.TITLE) return null;
-      return { title: strip(d.TITLE), author: strip(d.AUTHOR).replace(/^(지은이|글|저자)\s*:\s*/, ''), publisher: strip(d.PUBLISHER),
+      return { title: strip(d.TITLE), author: tidyAuthor(strip(d.AUTHOR).replace(/^(지은이|글|저자)\s*:\s*/, '')), publisher: strip(d.PUBLISHER),
         year: (d.PUBLISH_PREDATE || d.REAL_PUBLISH_DATE || '').slice(0, 4), pages: parseInt(d.PAGE) || '', cover: (d.TITLE_URL || '').replace(/^http:/, 'https:') };
     })],
     ['카카오', KAKAO_KEY && (async isbn => {
