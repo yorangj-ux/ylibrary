@@ -1,0 +1,16 @@
+{
+  "name": "Y's Library",
+  "short_name": "Y's Library",
+  "description": "내가 가진 책을 온라인 서재처럼 보고 관리하는 앱",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2f3ef",
+  "theme_color": "#2c4a8a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
