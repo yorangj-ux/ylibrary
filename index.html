@@ -442,7 +442,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   // 순서대로 시도: 국립중앙도서관 → 카카오 → Open Library → Google Books. 키가 비어 있는 곳은 건너뛴다.
   // 두 키 모두 공개 페이지에 들어가므로, 발급처에서 사용 한도 외에 비용이 생기지 않는 키만 넣는다.
   const NLK_KEY = '';    // 국립중앙도서관 ISBN 서지정보 API 인증키 (www.nl.go.kr 오픈API)
-  const KAKAO_KEY = '';  // 카카오 REST API 키 (developers.kakao.com)
+  const KAKAO_KEY = 'd017d8003eaaf3b737f7d55e509e3523';  // 카카오 REST API 키 (developers.kakao.com)
   const strip = h => String(h || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   const SOURCES = [
     ['국립중앙도서관', NLK_KEY && (async isbn => {
