@@ -7,6 +7,7 @@
 ## 기능
 - 표지 서가 보기 (표지 사진이 없으면 제목으로 표지 생성)
 - ISBN으로 자동 입력 (Google Books, Open Library) 또는 직접 입력
+- 책 뒤표지 ISBN 바코드를 카메라나 사진으로 인식
 - 읽기 상태, 별점, 태그, 꽂힌 곳, 메모
 - 검색, 상태 필터, 정렬
 - 서재 이름과 한 줄 소개를 각자 바꾸기
@@ -25,5 +26,6 @@
 - `index.html`, `manifest.webmanifest`, `sw.js`, `icons/` : 배포되는 앱
 - `src/library.html` : 앱 원본. 고친 뒤 `sh src/build.sh`를 실행하면 `index.html`이 다시 만들어집니다.
 - `src/icon.svg` : 아이콘 원본
+- `vendor/` : 바코드 인식 라이브러리 [ZXing](https://github.com/zxing-js/library) 0.21.3 (Apache-2.0)
 
 내 주소로 따로 배포하려면 이 저장소를 Fork한 뒤 Settings → Pages에서 `main` 브랜치를 고르면 됩니다. Drive 연동까지 쓰려면 Google Cloud에서 웹용 OAuth 클라이언트 ID를 만들고(범위: `drive.appdata`, 승인된 JavaScript 원본: 내 Pages 주소) `src/library.html`의 `GOOGLE_CLIENT_ID`에 넣은 뒤 `sh src/build.sh`를 실행하세요.
