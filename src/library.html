@@ -45,6 +45,12 @@ header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: 
 .brand p { margin: 2px 0 0; color: var(--muted); }
 .rename { border: 0; background: none; padding: 4px; vertical-align: middle; border-radius: 6px; opacity: .45; }
 .rename:hover, .rename:focus-visible { opacity: 1; background: var(--accent-soft); }
+.sync { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--muted); }
+.sync .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.sync[data-state="ok"] .dot { background: var(--reading); }
+.sync[data-state="busy"] .dot { background: var(--want); }
+.sync[data-state="err"] .dot { background: var(--danger); }
+.sync[data-state="ok"], .sync[data-state="busy"] { color: var(--ink); }
 .rename svg { width: 18px; height: 18px; stroke: var(--ink); fill: none; display: block; }
 .counts { display: flex; gap: 22px; font-variant-numeric: tabular-nums; }
 .counts div { display: grid; }
@@ -140,7 +146,10 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       <h1><span id="libName">Y's Library</span> <button class="rename" id="renameBtn" aria-label="서재 이름 바꾸기" title="서재 이름 바꾸기"><svg viewBox="0 0 24 24" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg></button></h1>
       <p id="libTagline">내 책장에 꽂힌 책들</p>
     </div>
-    <div class="counts" id="counts"></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+      <button class="sync" id="syncBtn" hidden><span class="dot"></span><span id="syncLabel">Google Drive 연동</span></button>
+      <div class="counts" id="counts"></div>
+    </div>
   </header>
 
   <div class="toolbar">
@@ -195,19 +204,20 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   ];
 
   // ---------- storage ----------
-  let state = { books: [], sample: false };
+  let state = { books: [], sample: false, deleted: {} };
   let memoryOnly = false;
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) { state = JSON.parse(raw); return; }
+      if (raw) { state = JSON.parse(raw); state.deleted = state.deleted || {}; return; }
     } catch (e) { memoryOnly = true; }
-    state = { books: SAMPLE.map((b, i) => normalize({ ...b, addedAt: Date.now() - (SAMPLE.length - i) * 86400000 })), sample: true };
+    state = { books: SAMPLE.map((b, i) => normalize({ ...b, addedAt: Date.now() - (SAMPLE.length - i) * 86400000 })), sample: true, deleted: {} };
   }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); memoryOnly = false; }
     catch (e) { memoryOnly = true; }
     renderStoreInfo();
+    if (window.__sync) window.__sync.schedule();
   }
   function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
   function normalize(b) {
@@ -218,12 +228,12 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       status: STATUS[b.status] ? b.status : 'want', rating: Number(b.rating) || 0,
       tags: Array.isArray(b.tags) ? b.tags.filter(Boolean) : String(b.tags || '').split(',').map(s => s.trim()).filter(Boolean),
       location: (b.location || '').trim(), notes: b.notes || '', cover: b.cover || '',
-      addedAt: b.addedAt || Date.now()
+      addedAt: b.addedAt || Date.now(), updatedAt: b.updatedAt || b.addedAt || Date.now()
     };
   }
 
   // ---------- library name (각 사용자가 바꿀 수 있음) ----------
-  const DEFAULT_PROFILE = { name: "Y's Library", tagline: '내 책장에 꽂힌 책들' };
+  const DEFAULT_PROFILE = { name: "Y's Library", tagline: '내 책장에 꽂힌 책들', updatedAt: 0 };
   let profile = { ...DEFAULT_PROFILE };
   try { profile = { ...DEFAULT_PROFILE, ...JSON.parse(localStorage.getItem(KEY + ':profile') || '{}') }; } catch (e) {}
   function applyProfile() {
@@ -233,9 +243,10 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     document.title = profile.name;
   }
   function saveProfile(p) {
-    profile = { name: (p.name || '').trim() || DEFAULT_PROFILE.name, tagline: (p.tagline || '').trim() };
+    profile = { name: (p.name || '').trim() || DEFAULT_PROFILE.name, tagline: (p.tagline || '').trim(), updatedAt: p.updatedAt || Date.now() };
     try { localStorage.setItem(KEY + ':profile', JSON.stringify(profile)); } catch (e) {}
     applyProfile();
+    if (window.__sync && !p.fromSync) window.__sync.schedule();
   }
 
   // ---------- helpers ----------
@@ -377,7 +388,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       const data = Object.fromEntries(new FormData(form));
       if (!data.title.trim()) { form.elements.title.focus(); return; }
       if (state.sample) { state.books = []; state.sample = false; }
-      if (id) { const i = state.books.findIndex(x => x.id === id); state.books[i] = normalize({ ...state.books[i], ...data }); }
+      if (id) { const i = state.books.findIndex(x => x.id === id); state.books[i] = normalize({ ...state.books[i], ...data, updatedAt: Date.now() }); }
       else state.books.push(normalize(data));
       save(); render(); closeSheet(); toast(id ? '저장했어요' : `‘${data.title.trim()}’을(를) 꽂았어요`);
     };
@@ -436,7 +447,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
         <div class="actions"><button class="btn primary" type="submit">저장</button><button class="btn ghost" type="button" id="resetName">기본 이름으로</button></div>
       </form>`);
     $('#renameForm').onsubmit = e => { e.preventDefault(); saveProfile(Object.fromEntries(new FormData(e.target))); closeSheet(); toast('서재 이름을 바꿨어요'); };
-    $('#resetName').onclick = () => { saveProfile(DEFAULT_PROFILE); closeSheet(); toast('기본 이름으로 돌렸어요'); };
+    $('#resetName').onclick = () => { saveProfile({ ...DEFAULT_PROFILE, updatedAt: Date.now() }); closeSheet(); toast('기본 이름으로 돌렸어요'); };
   }
 
   function showIO(mode) {
@@ -491,15 +502,15 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     if (t.classList.contains('book')) return showDetail(t.dataset.id);
     if (t.dataset.edit) return showForm(t.dataset.edit);
     if (t.dataset.setstatus) {
-      const b = state.books.find(x => x.id === t.dataset.id); b.status = t.dataset.setstatus;
+      const b = state.books.find(x => x.id === t.dataset.id); b.status = t.dataset.setstatus; b.updatedAt = Date.now();
       if (state.sample) state.sample = false;
       save(); render(); showDetail(b.id); return toast(`${STATUS[b.status]}(으)로 바꿨어요`);
     }
     if (t.dataset.del) {
       if (!t.classList.contains('armed')) { t.classList.add('armed'); t.textContent = '한 번 더 누르면 삭제'; return; }
-      state.books = state.books.filter(x => x.id !== t.dataset.del); save(); render(); closeSheet(); return toast('삭제했어요');
+      state.books = state.books.filter(x => x.id !== t.dataset.del); state.deleted[t.dataset.del] = Date.now(); save(); render(); closeSheet(); return toast('삭제했어요');
     }
-    if (t.id === 'clearSample') { state = { books: [], sample: false }; save(); render(); return toast('예시를 비웠어요'); }
+    if (t.id === 'clearSample') { state = { books: [], sample: false, deleted: {} }; save(); render(); return toast('예시를 비웠어요'); }
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
   $('#q').addEventListener('input', e => { query = e.target.value; render(); });
@@ -523,6 +534,122 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     openSheet(`<div class="head"><h2>홈 화면에 설치하기</h2><button class="x" data-close aria-label="닫기">×</button></div>
       <p>Safari 아래쪽의 <b>공유</b> 버튼을 누르고 <b>홈 화면에 추가</b>를 고르세요. 그러면 앱처럼 열리고, 인터넷이 없어도 서재를 볼 수 있어요.</p>`);
   };
+
+  // ---------- Google Drive 연동 ----------
+  // 각 사용자의 Drive '앱 전용 숨김 폴더'(appDataFolder)에 library.json 하나를 둔다.
+  // 배포하는 사람은 Google Cloud에서 만든 OAuth 클라이언트 ID를 여기에 넣는다. 비어 있으면 연동 버튼이 숨겨진다.
+  const GOOGLE_CLIENT_ID = '';
+  const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+  const FILE = 'library.json';
+  const syncKey = KEY + ':sync';
+  let sync = { linked: false, lastSync: 0 };
+  try { sync = { ...sync, ...JSON.parse(localStorage.getItem(syncKey) || '{}') }; } catch (e) {}
+  const saveSync = () => { try { localStorage.setItem(syncKey, JSON.stringify(sync)); } catch (e) {} };
+  let token = null, tokenExp = 0, tokenClient = null, timer = null, busy = false, again = false;
+
+  function setSyncUI(st, label) {
+    const b = $('#syncBtn'); b.dataset.state = st; $('#syncLabel').textContent = label;
+  }
+  function idleLabel() {
+    if (!sync.linked) return setSyncUI('', 'Google Drive 연동');
+    if (token && Date.now() < tokenExp) return setSyncUI('ok', sync.lastSync ? `Drive 동기화됨 · ${new Date(sync.lastSync).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : 'Drive 연결됨');
+    setSyncUI('', '눌러서 Drive와 맞추기');
+  }
+  function loadGIS() {
+    return new Promise((res, rej) => {
+      if (window.google && google.accounts) return res();
+      const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true;
+      sc.onload = res; sc.onerror = () => rej(new Error('gis')); document.head.appendChild(sc);
+    });
+  }
+  async function getToken(interactive) {
+    if (token && Date.now() < tokenExp - 60000) return token;
+    if (!interactive) return null;
+    await loadGIS();
+    return new Promise((res, rej) => {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID, scope: SCOPE,
+        callback: r => { if (r.error) return rej(new Error(r.error)); token = r.access_token; tokenExp = Date.now() + (r.expires_in || 3600) * 1000; res(token); },
+        error_callback: e => rej(new Error(e.type || 'popup'))
+      });
+      tokenClient.requestAccessToken({ prompt: sync.linked ? '' : 'consent' });
+    });
+  }
+  async function api(path, opts = {}) {
+    const r = await fetch('https://www.googleapis.com' + path, { ...opts, headers: { Authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
+    if (r.status === 401) { token = null; throw new Error('auth'); }
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r;
+  }
+  function merge(local, remote) {
+    const deleted = { ...(remote.deleted || {}) };
+    for (const [id, t] of Object.entries(local.deleted || {})) deleted[id] = Math.max(deleted[id] || 0, t);
+    const byId = new Map();
+    for (const b of [...(remote.books || []), ...local.books]) {
+      const cur = byId.get(b.id);
+      if (!cur || (b.updatedAt || 0) > (cur.updatedAt || 0)) byId.set(b.id, b);
+    }
+    const books = [...byId.values()].filter(b => !(deleted[b.id] && deleted[b.id] >= (b.updatedAt || 0))).map(normalize);
+    const rp = remote.profile || { updatedAt: 0 };
+    return { books, deleted, profile: (rp.updatedAt || 0) > (profile.updatedAt || 0) ? rp : profile };
+  }
+  async function runSync(interactive) {
+    if (busy) { again = true; return; }
+    busy = true; setSyncUI('busy', 'Drive와 맞추는 중…');
+    try {
+      if (!(await getToken(interactive))) { busy = false; return idleLabel(); }
+      const list = await (await api(`/drive/v3/files?spaces=appDataFolder&fields=files(id,name)&q=${encodeURIComponent(`name='${FILE}'`)}`)).json();
+      const fileId = list.files && list.files[0] && list.files[0].id;
+      const remote = fileId ? await (await api(`/drive/v3/files/${fileId}?alt=media`)).json() : { books: [], deleted: {} };
+      const local = state.sample ? { books: [], deleted: {} } : state;
+      const m = merge(local, remote);
+      if (!(state.sample && !m.books.length)) state = { books: m.books, deleted: m.deleted, sample: false };
+      if (m.profile !== profile) saveProfile({ ...m.profile, fromSync: true });
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+      const body = JSON.stringify({ app: "Y's Library", version: 1, profile, books: state.sample ? [] : state.books, deleted: state.deleted, savedAt: Date.now() });
+      if (fileId) {
+        await api(`/upload/drive/v3/files/${fileId}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
+      } else {
+        const fd = new FormData();
+        fd.append('metadata', new Blob([JSON.stringify({ name: FILE, parents: ['appDataFolder'] })], { type: 'application/json' }));
+        fd.append('file', new Blob([body], { type: 'application/json' }));
+        await api('/upload/drive/v3/files?uploadType=multipart', { method: 'POST', body: fd });
+      }
+      sync.linked = true; sync.lastSync = Date.now(); saveSync();
+      render(); idleLabel();
+    } catch (e) {
+      const msg = e.message === 'gis' || e.message === 'Failed to fetch' ? '인터넷 연결을 확인해 주세요'
+        : e.message === 'auth' ? '다시 로그인이 필요해요' : /popup/.test(e.message) ? '로그인 창이 닫혔어요' : 'Drive와 맞추지 못했어요';
+      setSyncUI('err', msg);
+    }
+    busy = false;
+    if (again) { again = false; runSync(false); }
+  }
+  function showSyncSheet() {
+    if (!sync.linked) {
+      return openSheet(`<div class="head"><h2>Google Drive 연동</h2><button class="x" data-close aria-label="닫기">×</button></div>
+        <p>Google 계정으로 로그인하면 서재가 <b>내 Google Drive</b>의 앱 전용 숨김 폴더에 저장돼요. 휴대폰, 컴퓨터 등 같은 계정으로 로그인한 기기끼리 서재가 맞춰져요.</p>
+        <p class="hint">이 앱은 자기 전용 폴더만 볼 수 있고, Drive의 다른 파일은 보지 못해요. 기기에 있던 책과 Drive의 책은 합쳐져요.</p>
+        <div class="actions"><button class="btn primary" id="doLink">Google로 로그인</button></div>`);
+    }
+    openSheet(`<div class="head"><h2>Google Drive 연동</h2><button class="x" data-close aria-label="닫기">×</button></div>
+      <p>${sync.lastSync ? `마지막으로 맞춘 시각: ${new Date(sync.lastSync).toLocaleString('ko-KR')}` : '아직 맞춘 적이 없어요.'}</p>
+      <p class="hint">책을 추가하거나 고치면 몇 초 뒤 자동으로 Drive에 저장돼요. 앱을 새로 열면 ‘지금 맞추기’를 한 번 눌러 주세요.</p>
+      <div class="actions"><button class="btn primary" id="doSync">지금 맞추기</button><button class="btn ghost" id="unlink">이 기기 연동 끊기</button></div>`);
+  }
+  window.__sync = {
+    schedule() { if (!sync.linked || !token) return; clearTimeout(timer); timer = setTimeout(() => runSync(false), 3000); }
+  };
+  if (GOOGLE_CLIENT_ID && isApp) { $('#syncBtn').hidden = false; idleLabel(); }
+  $('#syncBtn').onclick = () => (sync.linked && !(token && Date.now() < tokenExp)) ? runSync(true) : showSyncSheet();
+  document.addEventListener('click', e => {
+    if (e.target.id === 'doLink' || e.target.id === 'doSync') { closeSheet(); runSync(true); }
+    if (e.target.id === 'unlink') {
+      if (token && window.google) google.accounts.oauth2.revoke(token, () => {});
+      token = null; sync = { linked: false, lastSync: 0 }; saveSync(); closeSheet(); idleLabel(); toast('이 기기의 연동을 끊었어요. 책은 그대로 남아 있어요.');
+    }
+  });
+
   if (isApp && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   if (isApp && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
