@@ -129,6 +129,9 @@ form.edit { display: grid; gap: 12px; }
 .field { min-width: 0; }
 .field input, .field select, .field textarea { width: 100%; min-width: 0; font-size: 16px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .field textarea { min-height: 90px; resize: vertical; }
+/* 아이폰 Safari의 날짜 칸은 기본 모양 때문에 옆으로 넘치고 가운데 정렬된다. 다른 칸과 똑같이 맞춘다. */
+input[type="date"] { -webkit-appearance: none; appearance: none; display: block; width: 100%; max-width: 100%; min-width: 0; min-height: 42px; text-align: left; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
 .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .isbn-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .isbn-row .btn { flex: 1 0 auto; }
