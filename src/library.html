@@ -789,7 +789,17 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     schedule() { if (!sync.linked || !token) return; clearTimeout(timer); timer = setTimeout(() => runSync(false), 3000); }
   };
   if (GOOGLE_CLIENT_ID && isApp) { $('#syncBtn').hidden = false; idleLabel(); }
-  $('#syncBtn').onclick = () => (sync.linked && !(token && Date.now() < tokenExp)) ? runSync(true) : showSyncSheet();
+  $('#syncBtn').onclick = () => { if (!(sync.linked && !(token && Date.now() < tokenExp))) showSyncSheet(); };
+  // 연동된 기기라면 앱을 연 뒤 첫 터치(클릭) 때 자동으로 Drive와 맞춘다.
+  // 로그인 창은 사람이 누를 때만 열 수 있어서, 앱을 열자마자가 아니라 첫 터치에 맞춘다.
+  document.addEventListener('click', () => {
+    if (GOOGLE_CLIENT_ID && isApp && sync.linked && !(token && Date.now() < tokenExp) && !busy) runSync(true);
+  }, true);
+  // 다른 앱에 갔다가 돌아오면 최신 내용으로 다시 맞춘다.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && sync.linked && token && Date.now() < tokenExp) runSync(false);
+  });
+  setInterval(() => { if (document.visibilityState === 'visible' && sync.linked && token && Date.now() < tokenExp) runSync(false); }, 5 * 60 * 1000);
   document.addEventListener('click', e => {
     if (e.target.id === 'doLink' || e.target.id === 'doSync') { closeSheet(); runSync(true); }
     if (e.target.id === 'unlink') {
