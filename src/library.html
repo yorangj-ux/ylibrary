@@ -196,6 +196,26 @@ textarea.io { width: 100%; min-height: 220px; font-family: var(--f-mono); font-s
 .goal-edit input { width: 80px; font-size: 16px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .goal-edit select { font-size: 16px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 
+/* 밑줄 노트 */
+.notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+.note-thumb { position: relative; border: 0; padding: 0; background: var(--paper); border-radius: 10px; overflow: hidden; aspect-ratio: 3 / 4; box-shadow: var(--shadow); }
+.note-thumb .np { position: absolute; left: 6px; bottom: 6px; background: rgba(27,29,41,.75); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 999px; }
+.hl { position: relative; line-height: 0; border-radius: 10px; overflow: hidden; background: #000; }
+.hl img { width: 100%; height: 100%; object-fit: fill; display: block; }
+.note-thumb .hl { border-radius: 0; background: transparent; }
+.hl svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hl svg path { fill: none; stroke-linecap: round; stroke-linejoin: round; mix-blend-mode: multiply; }
+.hl.big img { height: auto; }
+.hl.draw svg { touch-action: none; cursor: crosshair; }
+.pens { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pen { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.pen[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--ink); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 7px 10px; font-size: 13px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.photo-pick { display: grid; gap: 10px; place-items: center; padding: 28px 16px; border: 2px dashed var(--line); border-radius: 14px; text-align: center; color: var(--muted); }
+.memo-view { white-space: pre-wrap; font-size: 15px; }
+
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 8px; z-index: 30; font-size: 14px; }
 footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; color: var(--muted); font-size: 13px; }
 @media (max-width: 520px) {
@@ -295,6 +315,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     renderStoreInfo();
     if (window.__sync) window.__sync.schedule();
   }
+  const N = () => state.notes || (state.notes = []);
   function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
   function normalize(b) {
     return {
@@ -308,6 +329,42 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       lentTo: (b.lentTo || '').trim(), lentAt: b.lentAt || '', loans: Array.isArray(b.loans) ? b.loans : [],
       addedAt: b.addedAt || Date.now(), updatedAt: b.updatedAt || b.addedAt || Date.now()
     };
+  }
+
+
+  // ---------- 사진 저장소 (IndexedDB) ----------
+  // 밑줄 노트 사진은 크기가 커서 localStorage가 아닌 IndexedDB에 저장한다.
+  const idb = (() => {
+    let dbp = null;
+    const open = () => dbp || (dbp = new Promise((res, rej) => {
+      const r = indexedDB.open('ys-library', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('images');
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }));
+    const tx = async (mode, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction('images', mode); const st = t.objectStore('images'); const out = fn(st); t.oncomplete = () => res(out && out.result); t.onerror = () => rej(t.error); }); };
+    return {
+      get: k => tx('readonly', st => st.get(k)),
+      set: (k, v) => tx('readwrite', st => st.put(v, k)),
+      del: k => tx('readwrite', st => st.delete(k)),
+      keys: () => tx('readonly', st => st.getAllKeys())
+    };
+  })();
+  const imgCache = new Map();
+  async function noteImage(id) {
+    if (imgCache.has(id)) return imgCache.get(id);
+    try { const v = await idb.get('note-' + id); if (v) imgCache.set(id, v); return v || ''; } catch (e) { return ''; }
+  }
+  function photoToJpeg(file, max = 1400) {
+    return new Promise((res, rej) => {
+      const img = new Image(); const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        res({ data: c.toDataURL('image/jpeg', 0.72), w: c.width, h: c.height });
+      };
+      img.onerror = rej; img.src = url;
+    });
   }
 
   // ---------- library name (각 사용자가 바꿀 수 있음) ----------
@@ -491,6 +548,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
         </div>
       </div>
       ${b.notes ? `<div class="notes">${esc(b.notes)}</div>` : ''}
+      ${notesSection(b)}
       <div class="box" id="loanBox">
         <h3>${b.lentTo ? `${esc(b.lentTo)}에게 빌려줬어요` : '빌려주기'}</h3>
         ${b.lentTo ? `<p class="hint" style="margin:0">${ymd(b.lentAt)}부터 · ${Math.max(0, Math.round((new Date(today()) - new Date(b.lentAt)) / 86400000))}일째</p>
@@ -505,6 +563,116 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
         <button class="btn primary" data-edit="${b.id}">편집</button>
         <button class="btn danger" data-del="${b.id}">삭제</button>
       </div>`);
+    fillNoteImages($('.sheet'));
+  }
+
+
+  // ---------- 밑줄 노트: 책 사진 위에 형광펜으로 긋기 ----------
+  const PENS = [['#ffe600', '노랑'], ['#7dff6b', '연두'], ['#ff7bd0', '분홍'], ['#6fd3ff', '하늘']];
+  const WIDTHS = [['0.018', '얇게'], ['0.032', '보통'], ['0.05', '굵게']];
+  // 획은 사진 크기에 상관없이 0~1 비율 좌표로 저장한다.
+  function strokesSVG(n) {
+    return `<svg viewBox="0 0 ${n.w} ${n.h}" preserveAspectRatio="none" aria-hidden="true">${(n.strokes || []).map(st =>
+      `<path d="${st.pts.map((p, i) => (i ? 'L' : 'M') + (p[0] * n.w).toFixed(1) + ' ' + (p[1] * n.h).toFixed(1)).join(' ')}" stroke="${st.c}" stroke-opacity=".5" stroke-width="${(st.w * n.w).toFixed(1)}"/>`).join('')}</svg>`;
+  }
+  async function fillNoteImages(root) {
+    for (const el of root.querySelectorAll('[data-noteimg]')) {
+      const src = await noteImage(el.dataset.noteimg);
+      if (src) el.src = src; else el.alt = '사진을 Drive에서 받아오는 중이에요';
+    }
+  }
+  function notesSection(b) {
+    const list = N().filter(n => n.bookId === b.id).sort((x, y) => (Number(x.page) || 9e9) - (Number(y.page) || 9e9) || x.createdAt - y.createdAt);
+    return `<div class="box"><h3>밑줄 노트 ${list.length ? `<span class="hint">${list.length}개</span>` : ''}</h3>
+      ${list.length ? `<div class="notes-grid">${list.map(n => `<button class="note-thumb" data-note="${n.id}" aria-label="${n.page ? n.page + '쪽 ' : ''}밑줄 노트"><div class="hl" style="aspect-ratio:${n.w}/${n.h}"><img data-noteimg="${n.id}" alt="">${strokesSVG(n)}</div>${n.page ? `<span class="np">${esc(n.page)}쪽</span>` : ''}</button>`).join('')}</div>` : '<p class="hint" style="margin:0">마음에 드는 문장을 사진으로 찍고 형광펜을 그어 두세요.</p>'}
+      <div class="row"><button class="btn" data-newnote="${b.id}">+ 밑줄 노트</button></div></div>`;
+  }
+  function showNote(id) {
+    const n = N().find(x => x.id === id); if (!n) return;
+    const b = state.books.find(x => x.id === n.bookId);
+    openSheet(`<div class="head"><h2>${esc(b ? b.title : '밑줄 노트')}${n.page ? ` <span class="hint" style="font-size:15px">${esc(n.page)}쪽</span>` : ''}</h2><button class="x" data-close aria-label="닫기">×</button></div>
+      <div class="hl big"><img data-noteimg="${n.id}" alt="밑줄 노트 사진">${strokesSVG(n)}</div>
+      ${n.memo ? `<p class="memo-view">${esc(n.memo)}</p>` : ''}
+      <div class="actions"><button class="btn primary" data-editnote="${n.id}">편집</button><button class="btn" data-open="${n.bookId}">책으로 돌아가기</button><button class="btn danger" data-delnote="${n.id}">삭제</button></div>`);
+    fillNoteImages($('.sheet'));
+  }
+  function showNoteEditor(bookId, noteId) {
+    const old = noteId ? N().find(x => x.id === noteId) : null;
+    const draft = old ? { ...old, strokes: old.strokes.map(st => ({ ...st, pts: st.pts.map(p => [...p]) })) } : { id: uid(), bookId, page: '', memo: '', strokes: [], w: 0, h: 0, createdAt: Date.now() };
+    let photo = null, pen = PENS[0][0], width = Number(WIDTHS[1][0]), straight = true;
+    const b = state.books.find(x => x.id === (old ? old.bookId : bookId));
+    openSheet(`<div class="head"><h2>${old ? '밑줄 노트 편집' : '밑줄 노트'}</h2><button class="x" data-close aria-label="닫기">×</button></div>
+      <p class="hint" style="margin-top:-8px">${esc(b ? b.title : '')}</p>
+      <div id="noteStage"></div>
+      <div id="noteTools" class="pens" hidden style="margin-top:10px">
+        ${PENS.map(([c, name], i) => `<button type="button" class="pen" style="background:${c}" data-pen="${c}" aria-label="${name} 형광펜" aria-pressed="${i === 0}"></button>`).join('')}
+        <span class="seg">${WIDTHS.map(([w, name], i) => `<button type="button" data-width="${w}" aria-pressed="${i === 1}">${name}</button>`).join('')}</span>
+        <span class="seg"><button type="button" data-straight="1" aria-pressed="true">곧은 줄</button><button type="button" data-straight="0" aria-pressed="false">자유롭게</button></span>
+        <button type="button" class="btn ghost" id="undoStroke">되돌리기</button>
+        <button type="button" class="btn ghost" id="retake">사진 다시 찍기</button>
+      </div>
+      <form class="edit" id="noteForm" style="margin-top:14px">
+        <div class="two"><div class="field"><label for="n-page">쪽</label><input id="n-page" name="page" inputmode="numeric" value="${esc(draft.page)}" placeholder="예: 127"></div><div></div></div>
+        <div class="field"><label for="n-memo">메모 (선택)</label><textarea id="n-memo" name="memo" placeholder="이 문장이 좋았던 이유">${esc(draft.memo)}</textarea></div>
+        <p class="hint" id="noteHint"></p>
+        <div class="actions"><button class="btn primary" type="submit">저장</button><button class="btn ghost" type="button" ${old ? `data-note="${old.id}"` : `data-open="${bookId}"`}>취소</button></div>
+      </form>
+      <input type="file" id="noteCam" accept="image/*" capture="environment" hidden>
+      <input type="file" id="noteAlbum" accept="image/*" hidden>`);
+    const stage = $('#noteStage');
+    const pickHTML = `<div class="photo-pick"><b style="color:var(--ink)">밑줄 칠 페이지를 찍어 주세요</b><span>찍은 사진 위에 손가락으로 형광펜을 그을 수 있어요.</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center"><button type="button" class="btn primary" id="takePhoto">사진 찍기</button><button type="button" class="btn" id="fromAlbum">앨범에서 고르기</button></div></div>`;
+    const drawStage = () => {
+      stage.innerHTML = `<div class="hl big draw"><img src="${photo}" alt="밑줄 칠 페이지">${strokesSVG(draft)}</div><p class="hint">사진 위를 손가락으로 그어 주세요. ${straight ? '곧은 줄은 시작한 높이에 맞춰 반듯하게 그어져요.' : ''}</p>`;
+      $('#noteTools').hidden = false; bindDraw();
+    };
+    const pickStage = () => {
+      stage.innerHTML = pickHTML; $('#noteTools').hidden = true;
+      $('#takePhoto').onclick = () => $('#noteCam').click(); $('#fromAlbum').onclick = () => $('#noteAlbum').click();
+    };
+    const onFile = async e => {
+      const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+      try { const r = await photoToJpeg(f); photo = r.data; draft.w = r.w; draft.h = r.h; draft.strokes = []; draft.newPhoto = true; drawStage(); }
+      catch (err) { $('#noteHint').className = 'hint err'; $('#noteHint').textContent = '사진을 읽지 못했어요. 다른 사진으로 해 주세요.'; }
+    };
+    $('#noteCam').onchange = onFile; $('#noteAlbum').onchange = onFile;
+    const redraw = () => { const svg = stage.querySelector('svg'); svg.outerHTML = strokesSVG(draft); bindDraw(); };
+    function bindDraw() {
+      const svg = stage.querySelector('svg'); let cur = null;
+      const pt = e => { const r = svg.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; };
+      svg.onpointerdown = e => { e.preventDefault(); svg.setPointerCapture(e.pointerId); const p = pt(e); cur = { c: pen, w: width, pts: [p, p] }; draft.strokes.push(cur); redrawLive(); };
+      svg.onpointermove = e => { if (!cur) return; const p = pt(e); if (straight) cur.pts = [cur.pts[0], [p[0], cur.pts[0][1]]]; else cur.pts.push(p); redrawLive(); };
+      svg.onpointerup = svg.onpointercancel = () => {
+        if (cur) { if (!straight && cur.pts.length > 3) cur.pts = cur.pts.filter((p, i, a) => i === 0 || i === a.length - 1 || i % 2 === 0); if (Math.abs(cur.pts[0][0] - cur.pts[cur.pts.length - 1][0]) < 0.005 && cur.pts.length <= 2) draft.strokes.pop(); }
+        cur = null; redraw();
+      };
+      const redrawLive = () => { const tmp = document.createElement('div'); tmp.innerHTML = strokesSVG(draft); svg.innerHTML = tmp.firstChild.innerHTML; };
+    }
+    $('#noteTools').onclick = e => {
+      const t = e.target.closest('button'); if (!t) return;
+      if (t.dataset.pen) { pen = t.dataset.pen; $('#noteTools').querySelectorAll('[data-pen]').forEach(x => x.setAttribute('aria-pressed', x === t)); }
+      if (t.dataset.width) { width = Number(t.dataset.width); $('#noteTools').querySelectorAll('[data-width]').forEach(x => x.setAttribute('aria-pressed', x === t)); }
+      if (t.dataset.straight) { straight = t.dataset.straight === '1'; $('#noteTools').querySelectorAll('[data-straight]').forEach(x => x.setAttribute('aria-pressed', x === t)); drawStage(); }
+      if (t.id === 'undoStroke') { draft.strokes.pop(); redraw(); }
+      if (t.id === 'retake') pickStage();
+    };
+    $('#noteForm').onsubmit = async e => {
+      e.preventDefault();
+      if (!photo) { $('#noteHint').className = 'hint err'; $('#noteHint').textContent = '먼저 사진을 찍어 주세요.'; return; }
+      const fd = Object.fromEntries(new FormData(e.target));
+      const n = { id: draft.id, bookId: draft.bookId, page: fd.page.replace(/[^0-9\-–~ ]/g, '').trim(), memo: fd.memo.trim(), strokes: draft.strokes, w: draft.w, h: draft.h, createdAt: draft.createdAt, updatedAt: Date.now(), img: draft.newPhoto ? Date.now() : (old && old.img) || Date.now() };
+      try { if (draft.newPhoto || !old) { await idb.set('note-' + n.id, photo); imgCache.set(n.id, photo); } }
+      catch (err) { $('#noteHint').className = 'hint err'; $('#noteHint').textContent = '이 기기에 사진을 저장하지 못했어요. 저장 공간을 확인해 주세요.'; return; }
+      const i = N().findIndex(x => x.id === n.id); if (i >= 0) N()[i] = n; else N().push(n);
+      if (state.sample) state.sample = false;
+      save(); render(); showNote(n.id); toast('밑줄 노트를 저장했어요');
+    };
+    if (old) noteImage(old.id).then(src => { if (src) { photo = src; drawStage(); } else pickStage(); }); else pickStage();
+  }
+  async function deleteNote(id) {
+    const n = N().find(x => x.id === id); state.notes = N().filter(x => x.id !== id); state.deleted[id] = Date.now();
+    try { await idb.del('note-' + id); } catch (e) {} imgCache.delete(id);
+    save(); render(); if (n) showDetail(n.bookId); toast('밑줄 노트를 지웠어요');
   }
 
   function showForm(id) {
@@ -690,7 +858,11 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   }
 
   function showIO(mode) {
-    const json = JSON.stringify({ app: "Y's Library", version: 1, exportedAt: new Date().toISOString(), profile, books: state.books }, null, 2);
+    const json = JSON.stringify({ app: "Y's Library", version: 1, exportedAt: new Date().toISOString(), profile, books: state.books, notes: N() }, null, 2);
+    const fullBackup = async () => {
+      const images = {}; for (const n of N()) { const v = await noteImage(n.id); if (v) images[n.id] = v; }
+      return JSON.stringify({ app: "Y's Library", version: 1, exportedAt: new Date().toISOString(), profile, books: state.books, notes: N(), noteImages: images });
+    };
     openSheet(mode === 'export' ? `
       <div class="head"><h2>내보내기</h2><button class="x" data-close aria-label="닫기">×</button></div>
       <h3 class="io-h">엑셀로 보기</h3>
@@ -708,7 +880,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       <p class="hint" id="ioHint"></p>`);
     if (mode === 'export') {
       const day = new Date().toISOString().slice(0, 10);
-      $('#dl').onclick = () => saveFile(`ys-library-${day}.json`, json, 'application/json');
+      $('#dl').onclick = async () => saveFile(`ys-library-${day}.json`, await fullBackup(), 'application/json');
       $('#dlCsv').onclick = () => saveFile(`ys-library-books-${day}.csv`, toCSV(), 'text/csv');
       $('#copy').onclick = () => {
         navigator.clipboard.writeText(json).then(() => toast('복사했어요'), () => { $('#ioText').hidden = false; $('#ioText').select(); $('#ioHint').textContent = '전체 선택했어요. Ctrl+C(⌘C)로 복사하세요.'; });
@@ -727,6 +899,8 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       const seen = new Set(state.books.map(b => b.id)); const key = b => (b.isbn || '') + '|' + b.title + '|' + b.author;
       const seenKey = new Set(state.books.map(key)); let n = 0;
       books.forEach(raw => { const b = normalize(raw); if (!b.title || seen.has(b.id) || seenKey.has(key(b))) return; state.books.push(b); seen.add(b.id); seenKey.add(key(b)); n++; });
+      const have = new Set(N().map(x => x.id)); const bookIds = new Set(state.books.map(x => x.id));
+      (data.notes || []).forEach(x => { if (!have.has(x.id) && bookIds.has(x.bookId)) { N().push(x); const img = (data.noteImages || {})[x.id]; if (img) { idb.set('note-' + x.id, img).catch(() => {}); imgCache.set(x.id, img); } } });
       save(); render(); closeSheet(); toast(`${n}권을 더했어요`);
     } catch (e) { $('#ioHint').className = 'hint err'; $('#ioHint').textContent = '형식을 읽을 수 없어요. 이 앱에서 내보낸 JSON인지 확인해 주세요.'; }
   }
@@ -738,6 +912,13 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     if (t.dataset.f) { filter = t.dataset.f; saveView(); return render(); }
     if (t.dataset.view) { view = t.dataset.view; saveView(); return render(); }
     if (t.dataset.open) { closeSheet(); return showDetail(t.dataset.open); }
+    if (t.dataset.newnote) return showNoteEditor(t.dataset.newnote);
+    if (t.dataset.note) return showNote(t.dataset.note);
+    if (t.dataset.editnote) return showNoteEditor(null, t.dataset.editnote);
+    if (t.dataset.delnote) {
+      if (!t.classList.contains('armed')) { t.classList.add('armed'); t.textContent = '한 번 더 누르면 삭제'; return; }
+      return deleteNote(t.dataset.delnote);
+    }
     if (t.dataset.lend) {
       const to = $('#l-to').value.trim(); if (!to) { $('#l-to').focus(); return toast('누구에게 빌려줬는지 적어 주세요'); }
       const b = state.books.find(x => x.id === t.dataset.lend); b.lentTo = to; b.lentAt = $('#l-at').value || today(); b.updatedAt = Date.now();
@@ -758,9 +939,11 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     }
     if (t.dataset.del) {
       if (!t.classList.contains('armed')) { t.classList.add('armed'); t.textContent = '한 번 더 누르면 삭제'; return; }
-      state.books = state.books.filter(x => x.id !== t.dataset.del); state.deleted[t.dataset.del] = Date.now(); save(); render(); closeSheet(); return toast('삭제했어요');
+      state.books = state.books.filter(x => x.id !== t.dataset.del); state.deleted[t.dataset.del] = Date.now();
+      N().filter(n => n.bookId === t.dataset.del).forEach(n => { state.deleted[n.id] = Date.now(); idb.del('note-' + n.id).catch(() => {}); });
+      state.notes = N().filter(n => n.bookId !== t.dataset.del); save(); render(); closeSheet(); return toast('삭제했어요');
     }
-    if (t.id === 'clearSample') { state = { books: [], sample: false, deleted: {} }; save(); render(); return toast('예시를 비웠어요'); }
+    if (t.id === 'clearSample') { state = { books: [], sample: false, deleted: {}, notes: [] }; save(); render(); return toast('예시를 비웠어요'); }
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
   $('#q').addEventListener('input', e => { query = e.target.value; render(); });
@@ -924,7 +1107,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   async function api(path, opts = {}) {
     const r = await fetch('https://www.googleapis.com' + path, { ...opts, headers: { Authorization: 'Bearer ' + token, ...(opts.headers || {}) } });
     if (r.status === 401) { token = null; throw new Error('auth'); }
-    if (!r.ok) throw new Error('http ' + r.status);
+    if (!r.ok && !(r.status === 404 && opts.method === 'DELETE')) throw new Error('http ' + r.status);
     return r;
   }
   function merge(local, remote) {
@@ -936,8 +1119,43 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       if (!cur || (b.updatedAt || 0) > (cur.updatedAt || 0)) byId.set(b.id, b);
     }
     const books = [...byId.values()].filter(b => !(deleted[b.id] && deleted[b.id] >= (b.updatedAt || 0))).map(normalize);
+    const nById = new Map();
+    for (const n of [...(remote.notes || []), ...(local.notes || [])]) { const cur = nById.get(n.id); if (!cur || (n.updatedAt || 0) > (cur.updatedAt || 0)) nById.set(n.id, n); }
+    const notes = [...nById.values()].filter(n => !(deleted[n.id] && deleted[n.id] >= (n.updatedAt || 0)));
     const rp = remote.profile || { updatedAt: 0 };
-    return { books, deleted, profile: (rp.updatedAt || 0) > (profile.updatedAt || 0) ? rp : profile };
+    return { books, notes, deleted, profile: (rp.updatedAt || 0) > (profile.updatedAt || 0) ? rp : profile };
+  }
+
+  // 노트 사진은 Drive 앱 폴더에 note-<id>-<img>.jpg 파일로 따로 둔다. 없는 쪽으로 올리거나 받아 온다.
+  async function syncNoteImages() {
+    const files = [];
+    let pageToken = '';
+    do {
+      const r = await (await api(`/drive/v3/files?spaces=appDataFolder&pageSize=1000&fields=nextPageToken,files(id,name)&q=${encodeURIComponent("name contains 'note-'")}${pageToken ? '&pageToken=' + pageToken : ''}`)).json();
+      files.push(...(r.files || [])); pageToken = r.nextPageToken || '';
+    } while (pageToken);
+    const byName = new Map(files.map(f => [f.name, f.id]));
+    const wanted = new Set();
+    for (const n of N()) {
+      const name = `note-${n.id}-${n.img || 0}.jpg`; wanted.add(name);
+      const local = await noteImage(n.id);
+      if (byName.has(name) && !local) {
+        const blob = await (await api(`/drive/v3/files/${byName.get(name)}?alt=media`)).blob();
+        const data = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+        await idb.set('note-' + n.id, data); imgCache.set(n.id, data);
+      } else if (!byName.has(name) && local) {
+        const blob = await (await fetch(local)).blob();
+        const fd = new FormData();
+        fd.append('metadata', new Blob([JSON.stringify({ name, parents: ['appDataFolder'] })], { type: 'application/json' }));
+        fd.append('file', blob);
+        await api('/upload/drive/v3/files?uploadType=multipart', { method: 'POST', body: fd });
+      }
+    }
+    // 지운 노트나 바뀐 사진의 옛 파일은 정리한다.
+    for (const [name, id] of byName) if (!wanted.has(name)) await api(`/drive/v3/files/${id}`, { method: 'DELETE' }).catch(() => {});
+    // 이 기기에만 남은, 지워진 노트 사진도 정리한다.
+    const live = new Set(N().map(n => 'note-' + n.id));
+    try { for (const k of await idb.keys()) if (!live.has(k)) { await idb.del(k); imgCache.delete(String(k).slice(5)); } } catch (e) {}
   }
   async function runSync(interactive) {
     if (busy) { again = true; return; }
@@ -947,12 +1165,13 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       const list = await (await api(`/drive/v3/files?spaces=appDataFolder&fields=files(id,name)&q=${encodeURIComponent(`name='${FILE}'`)}`)).json();
       const fileId = list.files && list.files[0] && list.files[0].id;
       const remote = fileId ? await (await api(`/drive/v3/files/${fileId}?alt=media`)).json() : { books: [], deleted: {} };
-      const local = state.sample ? { books: [], deleted: {} } : state;
+      const local = state.sample ? { books: [], deleted: {}, notes: [] } : state;
       const m = merge(local, remote);
-      if (!(state.sample && !m.books.length)) state = { books: m.books, deleted: m.deleted, sample: false };
+      if (!(state.sample && !m.books.length)) state = { books: m.books, notes: m.notes, deleted: m.deleted, sample: false };
       if (m.profile !== profile) saveProfile({ ...m.profile, fromSync: true });
       try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
-      const body = JSON.stringify({ app: "Y's Library", version: 1, profile, books: state.sample ? [] : state.books, deleted: state.deleted, savedAt: Date.now() });
+      await syncNoteImages();
+      const body = JSON.stringify({ app: "Y's Library", version: 1, profile, books: state.sample ? [] : state.books, notes: N(), deleted: state.deleted, savedAt: Date.now() });
       if (fileId) {
         await api(`/upload/drive/v3/files/${fileId}?uploadType=media`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body });
       } else {
