@@ -441,7 +441,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   // ---------- 책 정보 찾기 ----------
   // 순서대로 시도: 국립중앙도서관 → 카카오 → Open Library → Google Books. 키가 비어 있는 곳은 건너뛴다.
   // 두 키 모두 공개 페이지에 들어가므로, 발급처에서 사용 한도 외에 비용이 생기지 않는 키만 넣는다.
-  const NLK_KEY = '';    // 국립중앙도서관 ISBN 서지정보 API 인증키 (www.nl.go.kr 오픈API)
+  const NLK_KEY = '130ed7adf887ab97f767d3fcab2a3bb523df32d3d48ceb8a4ce29d68e65814a6';    // 국립중앙도서관 ISBN 서지정보 API 인증키 (www.nl.go.kr 오픈API)
   const KAKAO_KEY = 'd017d8003eaaf3b737f7d55e509e3523';  // 카카오 REST API 키 (developers.kakao.com)
   const strip = h => String(h || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   const SOURCES = [
@@ -474,7 +474,8 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     const hint = $('#lookupHint'); hint.className = 'hint';
     if (isbn.length !== 10 && isbn.length !== 13) { hint.className = 'hint err'; hint.textContent = 'ISBN은 10자리나 13자리 숫자예요.'; return; }
     hint.textContent = '찾는 중…';
-    let failed = 0;
+    // 처음 찾은 곳의 정보를 쓰고, 표지나 쪽수처럼 빈 칸은 다음 곳에서 채운다.
+    let failed = 0, found = null;
     for (const [name, fn] of SOURCES) {
       try {
         const info = await fn(isbn);
@@ -482,9 +483,12 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
         for (const k of ['title', 'author', 'publisher', 'year', 'pages']) if (info[k] && !F[k].value) F[k].value = info[k];
         if (info.cover && !F.cover.value) F.cover.value = info.cover;
         refreshPrev();
-        hint.textContent = `${name}에서 찾았어요. 내용을 확인하고 저장하세요.`; return;
+        found = found || name;
+        hint.textContent = `${found}에서 찾았어요. 내용을 확인하고 저장하세요.`;
+        if (F.cover.value && F.pages.value) return;
       } catch (e) { failed++; }
     }
+    if (found) return;
     hint.className = 'hint err';
     hint.textContent = failed === SOURCES.length ? '지금은 도서 정보 서버에 연결할 수 없어요. 아래에 직접 적어 주세요.' : '이 ISBN으로 등록된 책을 못 찾았어요. 아래에 직접 적어 주세요.';
   }
