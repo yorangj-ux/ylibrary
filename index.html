@@ -160,8 +160,9 @@ form.edit { display: grid; gap: 12px; }
 textarea.io { width: 100%; min-height: 220px; font-family: var(--f-mono); font-size: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
 
 
-.tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin-top: 10px; overflow-x: auto; }
-.tab { border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; padding: 10px 2px; font-family: var(--f-display); font-weight: 700; font-size: 16px; color: var(--muted); white-space: nowrap; }
+.tabs { display: flex; gap: 22px; box-shadow: inset 0 -1px 0 var(--line); margin-top: 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { border: 0; border-bottom: 2px solid transparent; background: none; padding: 10px 2px; font-family: var(--f-display); font-weight: 700; font-size: 16px; color: var(--muted); white-space: nowrap; }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .pill.lent { color: var(--lent); background: var(--lent-bg); }
 .dup { margin-top: 6px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
@@ -176,7 +177,7 @@ textarea.io { width: 100%; min-height: 220px; font-family: var(--f-mono); font-s
 .shelf-group h2 { font-family: var(--f-display); font-weight: 700; font-size: 20px; margin: 0 0 10px; display: flex; gap: 8px; align-items: baseline; }
 .shelf-group h2 span { font-family: var(--f-body); font-size: 13px; color: var(--muted); }
 .plank { display: flex; align-items: flex-end; gap: 4px; padding: 14px 12px 0; overflow-x: auto; border-bottom: 10px solid var(--wood); border-radius: 0 0 4px 4px; }
-.spine { flex: none; width: 46px; border: 0; padding: 14px 0 10px; border-radius: 3px 3px 0 0; font-weight: 700; background-image: linear-gradient(to bottom, transparent 8px, rgba(0,0,0,.14) 8px, rgba(0,0,0,.14) 10px, transparent 10px); writing-mode: vertical-rl; text-orientation: upright; font-family: var(--f-display); font-size: 15px; line-height: 1; letter-spacing: 1px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; box-shadow: inset -4px 0 0 rgba(0,0,0,.08), inset 3px 0 0 rgba(255,255,255,.25); transition: transform .15s ease; }
+.spine { flex: none; width: 46px; line-height: 46px; text-align: start; border: 0; padding: 14px 0 10px; border-radius: 3px 3px 0 0; font-weight: 700; background-image: linear-gradient(to bottom, transparent 8px, rgba(0,0,0,.14) 8px, rgba(0,0,0,.14) 10px, transparent 10px); writing-mode: vertical-rl; text-orientation: upright; font-family: var(--f-display); font-size: 15px; letter-spacing: 1px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; box-shadow: inset -4px 0 0 rgba(0,0,0,.08), inset 3px 0 0 rgba(255,255,255,.25); transition: transform .15s ease; }
 .spine:hover { transform: translateY(-6px); }
 .spine.lent { opacity: .45; outline: 2px dashed var(--lent); outline-offset: -4px; }
 
@@ -233,7 +234,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   select.sort { flex: 1 1 0; min-width: 0; }
   #addBtn { flex: 1 1 0; }
   .counts b { font-size: 24px; }
-  .spine { width: 32px; font-size: 13px; }
+  .spine { width: 34px; line-height: 34px; font-size: 13px; }
   .shelf { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 22px 14px; }
   .gen .t { font-size: 14px; }
   .detail { grid-template-columns: 96px 1fr; } .detail .cover { width: 96px; }
@@ -537,9 +538,13 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   }
 
   function renderStoreInfo() {
+    let linked = false;
+    try { linked = !!JSON.parse(localStorage.getItem(KEY + ':sync') || '{}').linked; } catch (e) {}
     $('#storeInfo').textContent = memoryOnly
       ? '이 창에서는 저장이 막혀 있어요. 닫기 전에 ‘내보내기’로 백업하세요.'
-      : '이 브라우저에만 저장됩니다. 다른 기기로 옮기려면 내보내기/가져오기를 쓰세요.';
+      : linked
+        ? '이 브라우저와 내 Google Drive에 함께 저장되고, 연동한 기기끼리 자동으로 맞춰져요.'
+        : '지금은 이 브라우저에만 저장돼요. 위의 ‘Google Drive 연동’을 켜면 다른 기기와 맞출 수 있어요.';
   }
 
   // ---------- sheet ----------
@@ -1095,6 +1100,7 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
     const b = $('#syncBtn'); b.dataset.state = st; $('#syncLabel').textContent = label;
   }
   function idleLabel() {
+    renderStoreInfo();
     if (!sync.linked) return setSyncUI('', 'Google Drive 연동');
     if (token && Date.now() < tokenExp) return setSyncUI('ok', sync.lastSync ? `Drive 동기화됨 · ${new Date(sync.lastSync).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })}` : 'Drive 연결됨');
     setSyncUI('', '눌러서 Drive와 맞추기');
